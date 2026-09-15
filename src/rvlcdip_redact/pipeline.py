@@ -11,7 +11,7 @@ from typing import Iterator
 import numpy as np
 from PIL import Image
 
-from rvlcdip_redact import baseline, checks, ocr, render, typeface
+from rvlcdip_redact import baseline, checks, ocr, people, render, typeface
 from rvlcdip_redact.annotations import Document
 from rvlcdip_redact.datasets import Dataset
 from rvlcdip_redact.fakedata import has_generator
@@ -50,6 +50,10 @@ def redact_document(image: Image.Image, doc: Document, page_ocr: dict | None, op
         words=words, gray=gray, typefaces=print_matcher, handwriting_typefaces=handwriting_matcher,
         skew=baseline.page_skew(gray, words), rgb=np.asarray(image.convert("RGB")),
     )
+    page.identities = people.link(doc.annotations, words)
+    if page.identities:
+        log.debug("%s: %d name box(es) linked to %d person(s)", doc.stem, len(page.identities),
+                  len({id(p) for p in page.identities.values()}))
     if handwriting_matcher is not None:
         page.handwriting_face = render.document_handwriting_face(words, handwriting_matcher)
         if page.handwriting_face is not None:

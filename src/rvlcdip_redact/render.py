@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 import numpy as np
 from PIL import Image, ImageDraw
 
-from rvlcdip_redact import augment, background, baseline, fakedata, geometry, handwriting, layout, ocr, style, typeface, weight
+from rvlcdip_redact import (
+    augment, background, baseline, fakedata, geometry, handwriting, layout, ocr, people, style, typeface, weight,
+)
 from rvlcdip_redact.annotations import Annotation, BBox
 from rvlcdip_redact.categories import canonical
 from rvlcdip_redact.ocr import Word
@@ -71,6 +73,7 @@ class Page:
     handwriting_typefaces: typeface.TypefaceMatcher | None = None
     rgb: np.ndarray | None = None  # original page in color, for sampling paper
     handwriting_face: typeface.Typeface | None = None  # the page's single handwriting typeface, if chosen
+    identities: dict[Annotation, people.Person] = field(default_factory=dict)  # name boxes linked to one person
 
 
 def document_handwriting_face(
@@ -145,17 +148,6 @@ def choose_font(bbox: BBox, inside: list[Word], page: Page, settings: TextSettin
     return (face.spec if face else fallback), handwritten
 
 
-def title_left_of(bbox: BBox, words: list[Word]) -> str | None:
-    """A title ("Mr.", "Mrs.") printed just left of a name box on the same line, if any."""
-    row = [w for w in geometry.words_in_row(bbox, words) if w.bbox.right <= bbox.left + 3]
-    if not row:
-        return None
-    nearest = max(row, key=lambda w: w.bbox.right)
-    if bbox.left - nearest.bbox.right > 2 * bbox.height:
-        return None
-    return nearest.text if nearest.text.rstrip(".").lower() in style.TITLES else None
-
-
 RULE_GAP = 2.0  # px between a snapped baseline and the top of its rule
 
 
@@ -228,9 +220,11 @@ def plan_text(annotation: Annotation, page: Page, settings: TextSettings) -> Pla
             style_source = original.rstrip(",;:.")
         detected = style.detect(category, style_source)
         if canonical(category) == "name" and isinstance(detected.detail, style.NameStyle):
-            title = title_left_of(bbox, page_words)
-            if title:
-                detected = dataclasses.replace(detected, detail=dataclasses.replace(detected.detail, title_outside=title))
+            detected = dataclasses.replace(detected, detail=dataclasses.replace(
+                detected.detail,
+                title_outside=people.title_left_of(bbox, page_words),
+                identity=page.identities.get(annotation),  # same person elsewhere on the page -> same fake name
+            ))
 
     def generate() -> str:
         text = settings.overrides.get(category)

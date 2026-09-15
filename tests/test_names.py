@@ -84,7 +84,9 @@ def test_title_just_left_of_the_box_sets_gender():
 
     words = [Word("Mrs.", BBox(100, 50, 40, 20)), Word("Delia", BBox(150, 50, 60, 20)), Word("Marsh", BBox(220, 50, 70, 20))]
     box = BBox(146, 46, 150, 28)
-    assert render.title_left_of(box, words) == "Mrs."
+    from rvlcdip_redact import people
+
+    assert people.title_left_of(box, words) == "Mrs."
     settings = render.TextSettings(font="LiberationSerif-Regular.ttf", font_size=20, auto_font_size=False, fit_width=False)
     fakedata.seed(0)
     female = {n for n in (fakedata._faker.first_name_female() for _ in range(3000))}

@@ -184,7 +184,8 @@ def _random_name_style() -> st.NameStyle:
 def fake_name(detail=None) -> str:
     """A personal name in the same shape as the original (order, initials, title, suffix)."""
     style = detail if isinstance(detail, st.NameStyle) else _random_name_style()
-    gender = style.gender or random.choice(["male", "female"])
+    person = style.identity  # a people.Person when this name was linked to others on the page
+    gender = person.gender if person else (style.gender or random.choice(["male", "female"]))
     given = _faker.first_name_male if gender == "male" else _faker.first_name_female
 
     parts, comma_done = [], False
@@ -192,15 +193,20 @@ def fake_name(detail=None) -> str:
         if tok.kind == "title":
             part = tok.text  # keeps gender agreement with the generated first name
         elif tok.kind in ("first", "middle"):
-            part = given().upper() if tok.upper else given()
+            part = (person.first if tok.kind == "first" else person.middle) if person else given()
+            part = part.upper() if tok.upper else part
         elif tok.kind == "last":
-            part = _faker.last_name()
-            if tok.hyphenated:
-                part = f"{part}-{_faker.last_name()}"
+            if person:
+                part = person.last
+            else:
+                part = _faker.last_name()
+                if tok.hyphenated:
+                    part = f"{part}-{_faker.last_name()}"
             if tok.upper:
                 part = part.upper()
         elif tok.kind == "initial":
-            part = random.choice(INITIALS) + ("." if tok.dot else "")
+            letter = (person.middle if tok.of == "middle" else person.first)[0] if person else random.choice(INITIALS)
+            part = letter + ("." if tok.dot else "")
         elif tok.kind == "suffix":
             suffix = random.choice(NAME_SUFFIXES)
             part = suffix + ("." if tok.dot and suffix in ("Jr", "Sr") else "")

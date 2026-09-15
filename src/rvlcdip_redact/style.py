@@ -8,6 +8,7 @@ text isn't recognized, in which case generators pick a random style.
 from __future__ import annotations
 
 import calendar
+import dataclasses
 import random
 import re
 from dataclasses import dataclass
@@ -243,6 +244,7 @@ class NameToken:
     dot: bool = False  # initials and suffixes written with a period
     hyphenated: bool = False  # "Smith-Jones"
     upper: bool = False  # this word written in capitals ("HARTLEY, Jonas")
+    of: str = ""  # for initials: "first" or "middle"
 
 
 def title_gender(title: str) -> str | None:
@@ -255,6 +257,7 @@ class NameStyle:
     tokens: tuple[NameToken, ...]
     last_first: bool  # "Last, First ..." rather than "First ... Last"
     title_outside: str | None = None  # a title printed just left of the box ("Mr." before the field)
+    identity: object | None = None  # a people.Person to fill this shape with, so repeated names match
 
     @property
     def gender(self) -> str | None:
@@ -264,8 +267,24 @@ class NameStyle:
         return title_gender(self.title_outside) if self.title_outside else None
 
 
+@dataclass(frozen=True)
+class ParsedName:
+    """The parts of an original name, used only to decide which boxes are the same person."""
+
+    style: NameStyle
+    first: str | None
+    first_letter: str | None  # from the first name or its initial
+    middle_letter: str | None
+    last: str | None
+
+
 def detect_name(text: str) -> NameStyle | None:
     """The shape of a personal name: order, initials, title, suffix. None if it doesn't look like a name."""
+    parsed = parse_name(text)
+    return parsed.style if parsed else None
+
+
+def parse_name(text: str) -> ParsedName | None:
     t = " ".join(text.split())
     if not t or not re.search(r"[A-Za-z]", t) or re.search(r"\d", t):
         return None
@@ -304,11 +323,31 @@ def detect_name(text: str) -> NameStyle | None:
         roles[words[-1]] = "last"
         for pos in words[1:-1]:
             roles[pos] = "middle"
-    tokens = tuple(
-        NameToken(roles[i], hyphenated=k.hyphenated, upper=k.upper) if k.kind == "word" else k
-        for i, k in enumerate(kinds)
-    )
-    return NameStyle(tokens=tokens, last_first=last_first)
+    tokens: list[NameToken] = []
+    first = first_letter = middle_letter = last = None
+    for i, k in enumerate(kinds):
+        if k.kind == "word":
+            role = roles[i]
+            tokens.append(NameToken(role, hyphenated=k.hyphenated, upper=k.upper))
+            word = raw[i]
+            if role == "first":
+                first, first_letter = word, word[0]
+            elif role == "middle":
+                middle_letter = middle_letter or word[0]
+            elif role == "last":
+                last = word
+        elif k.kind == "initial":
+            # An initial names the first name until one is seen, then the middle name.
+            of = "middle" if first_letter else "first"
+            tokens.append(dataclasses.replace(k, of=of))
+            if of == "first":
+                first_letter = raw[i][0]
+            elif middle_letter is None:
+                middle_letter = raw[i][0]
+        else:
+            tokens.append(k)
+    style = NameStyle(tokens=tuple(tokens), last_first=last_first)
+    return ParsedName(style=style, first=first, first_letter=first_letter, middle_letter=middle_letter, last=last)
 
 
 # --- per-category registry ------------------------------------------------
