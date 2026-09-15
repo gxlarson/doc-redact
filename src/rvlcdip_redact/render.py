@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from rvlcdip_redact import (
-    augment, background, baseline, fakedata, geometry, handwriting, layout, ocr, people, style, typeface, weight,
+    addresses, augment, background, baseline, fakedata, geometry, handwriting, layout, ocr, people, style, typeface, weight,
 )
 from rvlcdip_redact.annotations import Annotation, BBox
 from rvlcdip_redact.categories import canonical
@@ -74,6 +74,7 @@ class Page:
     rgb: np.ndarray | None = None  # original page in color, for sampling paper
     handwriting_face: typeface.Typeface | None = None  # the page's single handwriting typeface, if chosen
     identities: dict[Annotation, people.Person] = field(default_factory=dict)  # name boxes linked to one person
+    addresses: dict[Annotation, addresses.FakeAddress] = field(default_factory=dict)  # shared address components
 
 
 def document_handwriting_face(
@@ -225,6 +226,9 @@ def plan_text(annotation: Annotation, page: Page, settings: TextSettings) -> Pla
                 title_outside=people.title_left_of(bbox, page_words),
                 identity=page.identities.get(annotation),  # same person elsewhere on the page -> same fake name
             ))
+    if canonical(category) in fakedata.IDENTITY_CATEGORIES and annotation in page.addresses:
+        # Same street / city / zip elsewhere on the page -> same fake components (even without style matching).
+        detected = dataclasses.replace(detected or style.Style(), identity=page.addresses[annotation])
 
     def generate() -> str:
         text = settings.overrides.get(category)

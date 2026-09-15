@@ -148,6 +148,21 @@ def test_noisy_or_halftone_paper_does_not_produce_lines():
     assert background.detect_rules(np.asarray(Image.fromarray(shaded).convert("L")), BOX) == []
 
 
+def test_scan_texture_next_to_a_box_is_not_a_line():
+    # Dense random shading (like a halftone-screened area) around a small box, with no words nearby.
+    rng = np.random.default_rng(5)
+    gray = np.full((220, 800), 255, np.uint8)
+    shade = rng.random((60, 400)) < 0.5
+    gray[70:130, 150:550][shade] = 90
+    small = BBox(left=330, top=85, width=40, height=30)
+    assert background.detect_rules(gray, small, []) == []
+    # The same box on clean paper with a real rule through the shading's rows is still found.
+    gray = np.full((220, 800), 255, np.uint8)
+    gray[100:102, 100:700] = 60
+    [rule] = background.detect_rules(gray, small, [])
+    assert round(rule.y_at(350)) in (100, 101)
+
+
 def test_short_or_wobbly_strokes_inside_the_box_are_not_lines():
     rgb, gray = _scan(line_y=100, line_thickness=2, line_span=(230, 330), text="")  # 100 px dash, < 60% of box
     assert background.detect_rules(gray, BOX) == []

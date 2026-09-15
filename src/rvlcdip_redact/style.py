@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Callable, Union
 
 from rvlcdip_redact.categories import canonical
-from rvlcdip_redact.resources import US_STATES, state_abbreviations
+from rvlcdip_redact.resources import TRADITIONAL_ABBREVIATIONS, US_STATES, state_abbreviations
 
 MONTHS = [calendar.month_name[i] for i in range(1, 13)]
 MONTH_ABBREVIATIONS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"]
@@ -144,6 +144,43 @@ def classify_state(state: str) -> str | None:
     return None
 
 
+_EXTRA_ABBREVIATIONS = {"col.": "CO", "kan.": "KS", "neb.": "NE", "ore.": "OR", "wisc.": "WI", "tenn.": "TN"}
+
+
+def state_code(state: str) -> str | None:
+    """The postal code for a state written in any recognized form ("TX", "T.X.", "Tx.", "Tex.", "Texas")."""
+    s = state.strip()
+    compact = s.replace(" ", "").lower()
+    if re.fullmatch(r"[A-Za-z]{2}", s) and s.upper() in US_STATES:
+        return s.upper()
+    if re.fullmatch(r"[a-z]\.[a-z]\.", compact) and compact.replace(".", "").upper() in US_STATES:
+        return compact.replace(".", "").upper()
+    for code, abbreviation in TRADITIONAL_ABBREVIATIONS.items():
+        if compact == abbreviation.replace(" ", "").lower():
+            return code
+    if compact in _EXTRA_ABBREVIATIONS:
+        return _EXTRA_ABBREVIATIONS[compact]
+    if re.fullmatch(r"[a-z]{2}\.", compact) and compact[:2].upper() in US_STATES:
+        return compact[:2].upper()
+    for code, name in US_STATES.items():
+        if s.lower() == name.lower():
+            return code
+    return None
+
+
+def format_state(code: str, form: str) -> str:
+    """Write a state's postal code in a PlaceStyle.state form."""
+    if form == "full":
+        return US_STATES[code]
+    if form == "abbrev":
+        return TRADITIONAL_ABBREVIATIONS.get(code, code.title() + ".")
+    if form == "title_dot":
+        return code.title() + "."
+    if form == "postal_dotted":
+        return f"{code[0]}.{code[1]}."
+    return code
+
+
 def detect_place(text: str) -> PlaceStyle | None:
     t = " ".join(text.split())
     if "," not in t:
@@ -228,6 +265,67 @@ def detect_address(text: str) -> AddressStyle | None:
     place = detect_place(", ".join(core.split(",")[-2:])) if "," in core else None
     state = place.state if place and place.state != "none" else None
     return AddressStyle(part=part, has_zip=has_zip, state=state)
+
+
+@dataclass(frozen=True)
+class ParsedAddress:
+    """The parts of an original address, used only to link repeats of it on a page."""
+
+    street: str | None = None
+    city: str | None = None
+    state: str | None = None  # postal code
+    zip: str | None = None  # digits only
+
+
+_PO_BOX = re.compile(r"\bp\.?\s*o\.?\s*box\b", re.I)
+_STREET_WORDS = re.compile(
+    r"\b(st|street|ave|avenue|rd|road|dr|drive|ln|lane|blvd|boulevard|way|pl|place|ct|court|rt|rte|route|"
+    r"box|apt|suite|ste|hwy|highway|pkwy|parkway|terrace|ter|circle|cir)\b\.?", re.I,
+)
+
+
+def _split_city_state(segment: str) -> tuple[str | None, str | None]:
+    """"Springfield PA" / "Springfield" -> (city, state code)."""
+    words = segment.split()
+    for n in (2, 1):  # a two-word state name ("New Jersey") or a one-token form ("PA", "Pa.")
+        if len(words) >= n:
+            code = state_code(" ".join(words[-n:]))
+            if code:
+                return (" ".join(words[:-n]) or None), code
+    return (segment or None), None
+
+
+def parse_address(text: str) -> ParsedAddress | None:
+    """Street, city, state and zip of an address written on one or more lines (heuristic)."""
+    lines = [" ".join(line.split()).strip(" ,") for line in text.strip().splitlines() if line.strip()]
+    if not lines:
+        return None
+    flat = ", ".join(lines)
+    zip_match = re.search(r"\b(\d{5})(?:-(\d{4}))?\s*$", flat)
+    zip_code = zip_match.group(0).replace("-", "").strip() if zip_match else None
+    core = flat[:zip_match.start()].strip(" ,") if zip_match else flat
+    segments = [s.strip() for s in core.split(",") if s.strip()]
+    street_segments, rest = [], []
+    for n, s in enumerate(segments):
+        # Street-like segments can follow other text (e.g. a name line at the top of the box),
+        # but the final segment is the city/state whenever there is more than one.
+        is_last = n == len(segments) - 1 and len(segments) > 1
+        # Any digit counts: OCR often misreads the words ("Box", "Rt.") but numbers survive, and city
+        # names rarely contain digits.
+        looks_like_street = re.search(r"\d", s) or _PO_BOX.search(s) or _STREET_WORDS.search(s)
+        (street_segments if looks_like_street and not is_last else rest).append(s)
+    city = state = None
+    if rest:
+        if len(rest) >= 2 and state_code(rest[-1]):
+            city, state = rest[-2], state_code(rest[-1])
+        else:
+            city, state = _split_city_state(rest[-1])
+            if state is None and len(rest) >= 2 and len(rest[-1].replace(".", "").strip()) <= 3:
+                city = rest[-2]  # a short unreadable last segment is a misread state, not the city
+    street = ", ".join(street_segments) or None
+    if not (street or city or state or zip_code):
+        return None
+    return ParsedAddress(street=street, city=city, state=state, zip=zip_code)
 
 
 # --- personal names -------------------------------------------------------
@@ -357,6 +455,7 @@ class Style:
     case: str | None = None
     detail: object | None = None
     suffix: str = ""  # trailing punctuation to re-append, e.g. ";" in "February 3, 1941;"
+    identity: object | None = None  # shared components for repeated values on a page (addresses.FakeAddress)
 
 
 DETECTORS: dict[str, Callable[[str], object | None]] = {  # keyed by canonical category

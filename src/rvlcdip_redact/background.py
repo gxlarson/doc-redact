@@ -27,6 +27,8 @@ LINE_MIN_CONTRAST = 18  # gray levels below the paper for a pixel to count towar
 LINE_GAP_BRIDGE = 5  # px breaks along a faint line that are bridged
 LINE_MIN_COVERAGE = 0.8  # share of the between-words stretch where a real line's pixels are present
 LINE_MIN_FREE_FRACTION = 0.2  # a line hidden behind words for more than 80% of its length is not trusted
+LINE_CLEAR_BAND = 3  # px just above and below a line that should be paper
+LINE_MAX_CLUTTER = 0.35  # share of the between-words stretch allowed to have ink both above and below
 LINE_MAX_SLOPE = math.tan(math.radians(5))
 LINE_OVERHANG = 5  # px past the box edge that marks a line as part of the form
 # A line that stays inside the box must instead span most of it and be ruler-straight;
@@ -124,38 +126,45 @@ def generate_paper(paper: Paper, height: int, width: int, rng: np.random.Generat
     return np.clip(patch, 0, 255).astype(np.uint8)
 
 
-def _visible_between_words(
-    ink: np.ndarray, origin: tuple[int, int], left: float, right: float, intercept: float, slope: float,
+def _band_has_ink(gray: np.ndarray, threshold: float, x: int, y_from: float, y_to: float) -> bool:
+    ys = np.arange(int(np.floor(y_from)), int(np.ceil(y_to)) + 1)
+    ys = ys[(ys >= 0) & (ys < gray.shape[0])]
+    return bool(len(ys)) and 0 <= x < gray.shape[1] and bool((gray[ys, x] < threshold).any())
+
+
+def _looks_like_a_ruled_line(
+    gray: np.ndarray, threshold: float, left: float, right: float, intercept: float, slope: float,
     thickness: float, words: list[Word],
 ) -> bool:
-    """Is the line present along the stretches where no OCR word covers it?
+    """Checks that separate real lines from things that merely contain long dark runs.
 
-    A ruled line continues through the spaces between words; a row of letter
-    bottoms or serifs (which bridging can join into a long thin run) does not.
-    A word only hides the line where the line crosses the middle of the word,
-    so underlines just below a word still count as visible there.
+    1. Visible between words: a ruled line continues through the spaces between
+       words; a row of letter bottoms or serifs (joined by bridging) does not. A
+       word only hides the line where the line crosses the word's middle, so an
+       underline just below a word still counts as visible there.
+    2. Clean on both sides: a ruled line has paper just above and below it,
+       except where writing crosses it; halftone shading or scan texture is dark
+       above and below as well.
     """
-    x0, y0 = origin
     columns = np.arange(int(left), int(right))
     centers = intercept + slope * columns
     half = thickness / 2 + 1
     covered = np.zeros(len(columns), bool)
     for w in words:
         b = w.bbox
-        hides = (columns >= b.left) & (columns <= b.right) & (centers >= b.top + 0.15 * b.height) \
+        covered |= (columns >= b.left) & (columns <= b.right) & (centers >= b.top + 0.15 * b.height) \
             & (centers <= b.bottom - 0.15 * b.height)
-        covered |= hides
-    free = ~covered
-    if free.sum() < LINE_MIN_FREE_FRACTION * len(columns):
+    free = np.nonzero(~covered)[0]
+    if len(free) < LINE_MIN_FREE_FRACTION * len(columns):
         return False  # almost all of it runs through words: can't tell a line from letters
-    present = np.zeros(len(columns), bool)
-    for k in np.nonzero(free)[0]:
-        ys = np.arange(int(np.floor(centers[k] - half)), int(np.ceil(centers[k] + half)) + 1) - y0
-        ys = ys[(ys >= 0) & (ys < ink.shape[0])]
-        xi = columns[k] - x0
-        if 0 <= xi < ink.shape[1] and len(ys):
-            present[k] = ink[ys, xi].any()
-    return present[free].mean() >= LINE_MIN_COVERAGE
+    present = cluttered = 0
+    for k in free:
+        x, c = int(columns[k]), centers[k]
+        present += _band_has_ink(gray, threshold, x, c - half, c + half)
+        above = _band_has_ink(gray, threshold, x, c - half - LINE_CLEAR_BAND, c - half - 1)
+        below = _band_has_ink(gray, threshold, x, c + half + 1, c + half + LINE_CLEAR_BAND)
+        cluttered += above and below
+    return present / len(free) >= LINE_MIN_COVERAGE and cluttered / len(free) <= LINE_MAX_CLUTTER
 
 
 def detect_rules(gray: np.ndarray, bbox: BBox, words: list[Word] | None = None) -> list[Rule]:
@@ -163,6 +172,7 @@ def detect_rules(gray: np.ndarray, bbox: BBox, words: list[Word] | None = None) 
 
     ``words`` (the page's OCR words) let a candidate be checked in the gaps
     between words, which rejects rows of letter bottoms that merely look like lines.
+    Candidates must also have clean paper above and below (see _looks_like_a_ruled_line).
     """
     reach = max(LINE_MIN_LENGTH, int(bbox.height * 2))
     x0, y0, x1, y1 = _clip_box(bbox, gray.shape, reach, 3)
@@ -176,7 +186,8 @@ def detect_rules(gray: np.ndarray, bbox: BBox, words: list[Word] | None = None) 
     # writing on them, so lines get their own threshold just below the paper's noise level.
     paper = region[region >= background - 40]
     noise = float(paper.std()) if paper.size else 0.0
-    ink = region < background - max(LINE_MIN_CONTRAST, 3 * noise)
+    threshold = background - max(LINE_MIN_CONTRAST, 3 * noise)
+    ink = region < threshold
 
     # Bridge the 1 px steps of slightly tilted lines and small breaks in faint ones,
     # then keep only long horizontal runs.
@@ -213,9 +224,7 @@ def detect_rules(gray: np.ndarray, bbox: BBox, words: list[Word] | None = None) 
         y_mid = intercept + slope * mid
         if not (bbox.top - thickness <= y_mid <= bbox.bottom + thickness):
             continue
-        if words is not None and not _visible_between_words(
-            ink, (x0, y0), left, right, intercept, slope, thickness, words
-        ):
+        if not _looks_like_a_ruled_line(gray, threshold, left, right, intercept, slope, thickness, words or []):
             continue
         values = region[ys, xs]
         rules.append(Rule(x0=mid, y0=float(y_mid), slope=float(slope), thickness=thickness,

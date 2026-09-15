@@ -21,6 +21,16 @@ def state_abbreviations() -> tuple[str, ...]:
     return word_list("state_abbrev_multiletter.txt")
 
 
+# Traditional (pre-postal-code) abbreviations, e.g. for "Springfield, Pa."; states without one use "Xx.".
+TRADITIONAL_ABBREVIATIONS = {
+    "AL": "Ala.", "AZ": "Ariz.", "AR": "Ark.", "CA": "Calif.", "CO": "Colo.", "CT": "Conn.", "DE": "Del.",
+    "FL": "Fla.", "GA": "Ga.", "IL": "Ill.", "IN": "Ind.", "KS": "Kans.", "KY": "Ky.", "LA": "La.", "MD": "Md.",
+    "MA": "Mass.", "MI": "Mich.", "MN": "Minn.", "MS": "Miss.", "MO": "Mo.", "MT": "Mont.", "NE": "Nebr.",
+    "NV": "Nev.", "NH": "N.H.", "NJ": "N.J.", "NM": "N.Mex.", "NY": "N.Y.", "NC": "N.C.", "ND": "N.Dak.",
+    "OK": "Okla.", "OR": "Oreg.", "PA": "Pa.", "RI": "R.I.", "SC": "S.C.", "SD": "S.Dak.", "TN": "Tenn.",
+    "TX": "Tex.", "VT": "Vt.", "VA": "Va.", "WA": "Wash.", "WV": "W.Va.", "WI": "Wis.", "WY": "Wyo.",
+}
+
 US_STATES = {
     "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
     "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "FL": "Florida", "GA": "Georgia",

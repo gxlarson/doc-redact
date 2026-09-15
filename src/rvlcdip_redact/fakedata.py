@@ -83,26 +83,34 @@ def fake_marital_status(detail=None) -> str:
     if kind == 0:
         return "Single"
     if kind == 1:
-        return f"Married, {random.randint(1, 4)} children"
+        n = random.randint(1, 4)
+        return f"Married, {n} {'child' if n == 1 else 'children'}"
     return "Married"
 
 
-def fake_address(detail=None, max_line_length: int = 25) -> str:
-    """US address: "street\\ncity, ST 12345", or just the street or city line."""
+def fake_address(detail=None, max_line_length: int = 25, identity=None) -> str:
+    """US address: "street\\ncity, ST 12345", or just the street or city line.
+
+    ``identity`` (an addresses.FakeAddress) supplies components shared with other
+    boxes on the page; missing components are generated.
+    """
     if not isinstance(detail, st.AddressStyle):
         detail = st.AddressStyle(part="full", has_zip=True, state="postal")
 
-    street = _faker.street_address()
-    while len(street) > max_line_length:
+    street = identity.street if identity and identity.street else None
+    while street is None or len(street) > max_line_length:
         street = _faker.street_address()
     if detail.part == "street":
         return street
 
-    # Mostly real city names; Faker's invented ones ("Lake Amberfurt") a third of the time.
-    city = _faker.city() if random.randint(0, 2) == 0 else random.choice(us_cities())
-    city_line = f"{city}, {_state(detail.state or 'postal')}"
+    city = identity.city if identity and identity.city else fake_city()
+    if identity and identity.state:
+        state = st.format_state(identity.state, detail.state or "postal")
+    else:
+        state = _state(detail.state or "postal")
+    city_line = f"{city}, {state}"
     if detail.has_zip:
-        city_line += f" {_faker.zipcode()}"
+        city_line += f" {identity.zip[:5] if identity and identity.zip else _faker.zipcode()}"
     if detail.part == "city":
         return city_line
     return f"{street}\n{city_line}"
@@ -144,11 +152,14 @@ def fake_nationality(detail=None) -> str:
     return random.choice(NATIONALITIES)
 
 
-def fake_street(detail=None) -> str:
-    return fake_address(st.AddressStyle(part="street", has_zip=False))
+def fake_street(detail=None, identity=None) -> str:
+    return fake_address(st.AddressStyle(part="street", has_zip=False), identity=identity)
 
 
-def fake_city(detail=None, max_length: int = 15) -> str:
+def fake_city(detail=None, max_length: int = 15, identity=None) -> str:
+    if identity and identity.city:
+        return identity.city
+    # Mostly real city names; Faker's invented ones ("Lake Amberfurt") a third of the time.
     city_source = _faker.city if random.randint(0, 2) == 0 else (lambda: random.choice(us_cities()))
     city = city_source()
     while len(city) > max_length:
@@ -156,12 +167,20 @@ def fake_city(detail=None, max_length: int = 15) -> str:
     return city
 
 
-def fake_state(detail=None) -> str:
+def fake_state(detail=None, identity=None) -> str:
     form = detail.state if isinstance(detail, st.PlaceStyle) and detail.state != "none" else None
-    return _state(form or st.random_place_style().state)
+    form = form or st.random_place_style().state
+    if identity and identity.state:
+        return st.format_state(identity.state, form)
+    return _state(form)
 
 
-def fake_zip(detail=None) -> str:
+def fake_zip(detail=None, identity=None) -> str:
+    if identity and identity.zip:
+        if isinstance(detail, st.DigitTemplate):
+            digits = iter(identity.zip)
+            return re.sub(r"\d", lambda _: next(digits, "0"), detail.template)
+        return identity.zip[:5]
     if isinstance(detail, st.DigitTemplate):
         return _fill_digits(detail.template, first_nonzero=True)
     return _faker.zipcode()
@@ -249,4 +268,12 @@ def fake_text(category: str, style: st.Style | None = None) -> str:
     generator = GENERATORS[canonical(category)]
     if style is None:
         return generator()
-    return st.apply_case(generator(style.detail), style.case) + style.suffix
+    if style.identity is not None and canonical(category) in IDENTITY_CATEGORIES:
+        text = generator(style.detail, identity=style.identity)
+    else:
+        text = generator(style.detail)
+    return st.apply_case(text, style.case) + style.suffix
+
+
+# Generators that accept an ``identity`` shared with other boxes on the page.
+IDENTITY_CATEGORIES = {"home_address", "street", "city", "state", "zip"}
