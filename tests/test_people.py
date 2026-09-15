@@ -1,9 +1,9 @@
 """Linking repeated names to one fake identity. All names here are invented."""
 import pytest
 
-from rvlcdip_redact import fakedata, people, render, style
-from rvlcdip_redact.annotations import Annotation, BBox
-from rvlcdip_redact.ocr import Word
+from doc_redact import fakedata, people, render, style
+from doc_redact.annotations import Annotation, BBox
+from doc_redact.ocr import Word
 
 
 def _parsed(text):

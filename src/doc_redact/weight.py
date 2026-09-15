@@ -7,8 +7,8 @@ from statistics import median
 
 import numpy as np
 
-from rvlcdip_redact import layout
-from rvlcdip_redact.ocr import Word
+from doc_redact import layout
+from doc_redact.ocr import Word
 
 MAX_STROKE = 6  # supersampled outline steps; 6 adds 3 px of thickness
 MIN_CONTRAST = 60

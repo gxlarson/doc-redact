@@ -5,10 +5,10 @@ from __future__ import annotations
 import re
 from dataclasses import asdict, dataclass, field
 
-from rvlcdip_redact import geometry, style
-from rvlcdip_redact.annotations import Annotation
-from rvlcdip_redact.categories import canonical
-from rvlcdip_redact.ocr import Word
+from doc_redact import geometry, style
+from doc_redact.annotations import Annotation
+from doc_redact.categories import canonical
+from doc_redact.ocr import Word
 
 # Canonical category names (see categories.py).
 DATE_CATEGORIES = {"birth_date"}

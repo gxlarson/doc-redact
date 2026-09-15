@@ -11,13 +11,13 @@ from typing import Iterator
 import numpy as np
 from PIL import Image
 
-from rvlcdip_redact import addresses, baseline, checks, ocr, people, render, typeface, values
-from rvlcdip_redact.annotations import Document
-from rvlcdip_redact.datasets import Dataset
-from rvlcdip_redact import fakedata
-from rvlcdip_redact.categories import canonical
-from rvlcdip_redact.fakedata import has_generator
-from rvlcdip_redact.remote import Fetcher
+from doc_redact import addresses, baseline, checks, ocr, people, render, typeface, values
+from doc_redact.annotations import Document
+from doc_redact.datasets import Dataset
+from doc_redact import fakedata
+from doc_redact.categories import canonical
+from doc_redact.fakedata import has_generator
+from doc_redact.remote import Fetcher
 
 log = logging.getLogger(__name__)
 

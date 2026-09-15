@@ -4,10 +4,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from rvlcdip_redact import checks, fakedata, layout, render, style, typeface
-from rvlcdip_redact.annotations import Annotation, BBox
-from rvlcdip_redact.categories import ALIASES, canonical
-from rvlcdip_redact.ocr import Word
+from doc_redact import checks, fakedata, layout, render, style, typeface
+from doc_redact.annotations import Annotation, BBox
+from doc_redact.categories import ALIASES, canonical
+from doc_redact.ocr import Word
 
 
 @pytest.mark.parametrize("alias", sorted(ALIASES))

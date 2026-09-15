@@ -1,4 +1,4 @@
-# rvlcdip-redact
+# doc-redact
 
 Redact PII regions in scanned document images, either by whiting them out or by
 replacing them with realistic fake text that is degraded to look printed.
@@ -16,32 +16,32 @@ pip install -e ".[dev]"
 
 ```sh
 # White boxes over every annotated region
-rvlcdip-redact redact annotations/redactions_FUNSD_parsed.json \
+doc-redact redact annotations/redactions_FUNSD_parsed.json \
     --dataset funsd --mode white -o output/FUNSD_white
 
 # Fake replacement text (default mode), reproducible, with a local download cache
-rvlcdip-redact redact annotations/redactions_tobacco3482_parsed.json \
+doc-redact redact annotations/redactions_tobacco3482_parsed.json \
     --dataset tobacco3482 -o output/tobacco3482_pseudo --seed 0 --cache .cache
 
 # Redo a single page with fixed text for some categories
-rvlcdip-redact redact annotations/redactions_tobacco3482_parsed.json \
+doc-redact redact annotations/redactions_tobacco3482_parsed.json \
     --dataset tobacco3482 -o output/redo --only 50536499-6500 \
     --text birth_date="Oct.8,14" --text birth_place="Orance, CA"
 
 # Old behaviour: fixed font size, random formats, no width fitting
-rvlcdip-redact redact annotations/redactions_tobacco3482_parsed.json \
+doc-redact redact annotations/redactions_tobacco3482_parsed.json \
     --dataset tobacco3482 -o output/plain --font-size 34 --no-fit-width --no-match-style
 
 # Audit annotations: show the OCR text under each box and flag likely label errors
-rvlcdip-redact check annotations/redactions_tobacco3482_parsed.json \
+doc-redact check annotations/redactions_tobacco3482_parsed.json \
     --dataset tobacco3482 --cache .cache --problems-only --json check.json
 
 # Convert a Label Studio export into the annotations format
-rvlcdip-redact parse-labelstudio redactions_FUNSD.json redactions_FUNSD_parsed.json \
+doc-redact parse-labelstudio redactions_FUNSD.json redactions_FUNSD_parsed.json \
     --base-url https://cumberland.isis.vanderbilt.edu/stefan/FUNSD/
 ```
 
-`python -m rvlcdip_redact ...` works without installing (with `src` on `PYTHONPATH`).
+`python -m doc_redact ...` works without installing (with `src` on `PYTHONPATH`).
 
 Options for `redact`:
 
@@ -122,13 +122,13 @@ For each box, the OCR words at least 70% inside it are grouped into lines. That 
 | Typewriter, serifed | Courier Prime (+ Bold), Courier 10 Pitch (+ Bold), Cutive Mono, Special Elite | Courier and worn typewriter faces |
 | Typewriter, sans | Liberation Mono, Inconsolata, DejaVu Sans Mono | Consolas, Lucida Console |
 
-Licenses (SIL OFL, Apache 2.0, GUST, Bitstream, DejaVu) are listed in `src/rvlcdip_redact/fonts/FONTS.txt`
+Licenses (SIL OFL, Apache 2.0, GUST, Bitstream, DejaVu) are listed in `src/doc_redact/fonts/FONTS.txt`
 and ship next to the fonts.
 
 ## Layout
 
 ```
-src/rvlcdip_redact/
+src/doc_redact/
   cli.py          argument parsing, subcommands
   pipeline.py     per-document and batch redaction
   datasets.py     URL/output/font conventions per dataset

@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from rvlcdip_redact import layout, weight
-from rvlcdip_redact.annotations import BBox
-from rvlcdip_redact.ocr import Word
+from doc_redact import layout, weight
+from doc_redact.annotations import BBox
+from doc_redact.ocr import Word
 
 FONT = "CourierPrime-Regular.ttf"
 

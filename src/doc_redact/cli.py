@@ -1,4 +1,4 @@
-"""Command-line entrypoint: ``rvlcdip-redact`` or ``python -m rvlcdip_redact``."""
+"""Command-line entrypoint: ``doc-redact`` or ``python -m doc_redact``."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ import logging
 import sys
 from pathlib import Path
 
-from rvlcdip_redact import checks, fakedata, pipeline, render
-from rvlcdip_redact.annotations import Document, load_documents, parse_labelstudio, save_documents
-from rvlcdip_redact.datasets import DATASETS
-from rvlcdip_redact.remote import Fetcher
+from doc_redact import checks, fakedata, pipeline, render
+from doc_redact.annotations import Document, load_documents, parse_labelstudio, save_documents
+from doc_redact.datasets import DATASETS
+from doc_redact.remote import Fetcher
 
 
 def _override(value: str) -> tuple[str, str]:
@@ -22,7 +22,7 @@ def _override(value: str) -> tuple[str, str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="rvlcdip-redact", description=__doc__)
+    parser = argparse.ArgumentParser(prog="doc-redact", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -201,5 +201,5 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     if args.verbose:
-        logging.getLogger("rvlcdip_redact").setLevel(logging.DEBUG)
+        logging.getLogger("doc_redact").setLevel(logging.DEBUG)
     return COMMANDS[args.command](args)

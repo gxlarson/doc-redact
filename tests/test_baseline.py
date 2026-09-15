@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from rvlcdip_redact import baseline, layout, render
-from rvlcdip_redact.annotations import Annotation, BBox
-from rvlcdip_redact.ocr import Word
+from doc_redact import baseline, layout, render
+from doc_redact.annotations import Annotation, BBox
+from doc_redact.ocr import Word
 
 FONT = "LiberationSerif-Regular.ttf"
 SIZE = 28

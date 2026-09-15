@@ -3,9 +3,9 @@ import re
 
 import pytest
 
-from rvlcdip_redact import addresses, fakedata, render, style
-from rvlcdip_redact.annotations import Annotation, BBox
-from rvlcdip_redact.ocr import Word
+from doc_redact import addresses, fakedata, render, style
+from doc_redact.annotations import Annotation, BBox
+from doc_redact.ocr import Word
 
 
 @pytest.mark.parametrize("text, street, city, state, zip_code", [

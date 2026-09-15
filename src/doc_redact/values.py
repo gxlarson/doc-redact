@@ -16,12 +16,12 @@ import random
 import re
 from dataclasses import dataclass
 
-from rvlcdip_redact import fakedata, geometry, style
-from rvlcdip_redact.annotations import Annotation
-from rvlcdip_redact.categories import canonical
-from rvlcdip_redact.ocr import Word
-from rvlcdip_redact.people import similar_names
-from rvlcdip_redact.resources import US_STATES
+from doc_redact import fakedata, geometry, style
+from doc_redact.annotations import Annotation
+from doc_redact.categories import canonical
+from doc_redact.ocr import Word
+from doc_redact.people import similar_names
+from doc_redact.resources import US_STATES
 
 # marital_status is not here: a document's marital boxes share one fakedata.Family instead
 # (status and children are often annotated as separate boxes, e.g. "Married" and "2 children").

@@ -1,9 +1,9 @@
 import numpy as np
 from PIL import Image
 
-from rvlcdip_redact import augment, fakedata, layout, render
-from rvlcdip_redact.annotations import Annotation, BBox
-from rvlcdip_redact.ocr import Word
+from doc_redact import augment, fakedata, layout, render
+from doc_redact.annotations import Annotation, BBox
+from doc_redact.ocr import Word
 
 FONT = "CourierPrime-Regular.ttf"
 

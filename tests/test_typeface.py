@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from rvlcdip_redact import layout, render, typeface
-from rvlcdip_redact.annotations import Annotation, BBox
-from rvlcdip_redact.ocr import Word
+from doc_redact import layout, render, typeface
+from doc_redact.annotations import Annotation, BBox
+from doc_redact.ocr import Word
 
 FACES = tuple(f for f in typeface.BUNDLED if f.name in {
     "Liberation Serif", "Liberation Sans", "Special Elite", "Courier Prime", "Inconsolata", "TeX Gyre Bonum",

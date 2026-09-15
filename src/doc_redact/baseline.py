@@ -16,8 +16,8 @@ from statistics import median
 import numpy as np
 from scipy import ndimage
 
-from rvlcdip_redact.geometry import group_lines
-from rvlcdip_redact.ocr import Word
+from doc_redact.geometry import group_lines
+from doc_redact.ocr import Word
 
 BODY_ROW_FRACTION = 0.35  # rows with less ink than this (vs the densest row) are ascenders/descenders
 MIN_LINE_SPAN = 150  # px between the first and last word before a line's slope is trusted

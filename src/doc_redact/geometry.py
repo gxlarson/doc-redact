@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from statistics import median
 
-from rvlcdip_redact.annotations import BBox
-from rvlcdip_redact.ocr import Word
+from doc_redact.annotations import BBox
+from doc_redact.ocr import Word
 
 
 def words_inside(region: BBox, words: list[Word], min_coverage: float = 0.7) -> list[Word]:

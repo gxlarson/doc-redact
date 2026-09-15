@@ -3,9 +3,9 @@ import random
 import numpy as np
 from PIL import Image
 
-from rvlcdip_redact import handwriting, layout, ocr, render, typeface
-from rvlcdip_redact.annotations import Annotation, BBox
-from rvlcdip_redact.ocr import Word
+from doc_redact import handwriting, layout, ocr, render, typeface
+from doc_redact.annotations import Annotation, BBox
+from doc_redact.ocr import Word
 
 HAND = "PatrickHand-Regular.ttf"
 
@@ -60,7 +60,7 @@ def test_jitter_stays_near_the_unjittered_layout():
 
 def test_one_handwriting_typeface_per_document():
     # A page written in one hand: every handwritten box gets the same typeface, chosen from the whole page.
-    from rvlcdip_redact.annotations import BBox as B
+    from doc_redact.annotations import BBox as B
 
     page_img = Image.new("RGB", (1200, 400), "white")
     words, y = [], 40

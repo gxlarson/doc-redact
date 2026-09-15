@@ -14,10 +14,10 @@ import random
 import re
 from dataclasses import dataclass
 
-from rvlcdip_redact import fakedata, geometry, style
-from rvlcdip_redact.annotations import Annotation, BBox
-from rvlcdip_redact.categories import canonical
-from rvlcdip_redact.ocr import Word
+from doc_redact import fakedata, geometry, style
+from doc_redact.annotations import Annotation, BBox
+from doc_redact.categories import canonical
+from doc_redact.ocr import Word
 
 
 @dataclass(frozen=True)

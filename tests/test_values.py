@@ -3,9 +3,9 @@ import re
 
 import pytest
 
-from rvlcdip_redact import fakedata, render, style, values
-from rvlcdip_redact.annotations import Annotation, BBox
-from rvlcdip_redact.ocr import Word
+from doc_redact import fakedata, render, style, values
+from doc_redact.annotations import Annotation, BBox
+from doc_redact.ocr import Word
 
 
 def _page(entries):

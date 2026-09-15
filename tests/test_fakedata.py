@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from rvlcdip_redact import fakedata
+from doc_redact import fakedata
 
 
 @pytest.mark.parametrize("category", sorted(fakedata.GENERATORS))

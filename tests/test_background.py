@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from rvlcdip_redact import background, layout
-from rvlcdip_redact.annotations import BBox
-from rvlcdip_redact.ocr import Word
+from doc_redact import background, layout
+from doc_redact.annotations import BBox
+from doc_redact.ocr import Word
 
 HAND = "PatrickHand-Regular.ttf"
 BOX = BBox(left=200, top=80, width=260, height=40)
@@ -176,7 +176,7 @@ def test_short_or_wobbly_strokes_inside_the_box_are_not_lines():
 
 
 def test_text_snaps_above_a_rule_that_would_strike_through_it():
-    from rvlcdip_redact import render
+    from doc_redact import render
 
     font = layout.load_font(HAND, 30)
     tilt = np.tan(np.radians(2.0))

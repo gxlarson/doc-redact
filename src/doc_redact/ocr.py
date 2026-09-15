@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from rvlcdip_redact.annotations import BBox
+from doc_redact.annotations import BBox
 
 
 @dataclass(frozen=True)

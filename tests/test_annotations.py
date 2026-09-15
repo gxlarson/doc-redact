@@ -1,6 +1,6 @@
 import pytest
 
-from rvlcdip_redact.annotations import BBox, Document, RelativeBBox, load_documents, parse_labelstudio, save_documents
+from doc_redact.annotations import BBox, Document, RelativeBBox, load_documents, parse_labelstudio, save_documents
 
 
 def test_intersection_uses_top_left_origin():

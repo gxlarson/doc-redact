@@ -1,4 +1,4 @@
-"""Word lists bundled in ``rvlcdip_redact/data``."""
+"""Word lists bundled in ``doc_redact/data``."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from importlib.resources import files
 
 @cache
 def word_list(name: str) -> tuple[str, ...]:
-    text = files("rvlcdip_redact").joinpath("data", name).read_text(encoding="utf-8")
+    text = files("doc_redact").joinpath("data", name).read_text(encoding="utf-8")
     return tuple(line.strip() for line in text.splitlines() if line.strip())
 
 

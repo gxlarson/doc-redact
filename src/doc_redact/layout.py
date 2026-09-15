@@ -12,7 +12,7 @@ from typing import Callable
 
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
-from rvlcdip_redact.ocr import Word
+from doc_redact.ocr import Word
 
 MIN_FONT_SIZE = 6
 MAX_FONT_SIZE = 300
@@ -24,10 +24,10 @@ _measure = ImageDraw.Draw(Image.new("L", (1, 1)))
 
 @cache
 def load_font(spec: str, size: int) -> ImageFont.FreeTypeFont:
-    """Load a font by path, by a file bundled in ``rvlcdip_redact/fonts``, or by system font name."""
+    """Load a font by path, by a file bundled in ``doc_redact/fonts``, or by system font name."""
     if Path(spec).is_file():
         return ImageFont.truetype(spec, size)
-    bundled = files("rvlcdip_redact").joinpath("fonts", spec)
+    bundled = files("doc_redact").joinpath("fonts", spec)
     if bundled.is_file():
         with as_file(bundled) as path:
             return ImageFont.truetype(str(path), size)

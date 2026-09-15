@@ -3,11 +3,11 @@ import re
 
 import pytest
 
-from rvlcdip_redact import fakedata, render, style
-from rvlcdip_redact.annotations import Annotation, BBox
-from rvlcdip_redact.fakedata import Family
-from rvlcdip_redact.ocr import Word
-from rvlcdip_redact.style import ChildrenStyle, CombinedStyle, StatusStyle
+from doc_redact import fakedata, render, style
+from doc_redact.annotations import Annotation, BBox
+from doc_redact.fakedata import Family
+from doc_redact.ocr import Word
+from doc_redact.style import ChildrenStyle, CombinedStyle, StatusStyle
 
 
 @pytest.mark.parametrize("text, expected", [

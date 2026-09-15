@@ -14,8 +14,8 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Union
 
-from rvlcdip_redact.categories import canonical
-from rvlcdip_redact.resources import TRADITIONAL_ABBREVIATIONS, US_STATES, state_abbreviations
+from doc_redact.categories import canonical
+from doc_redact.resources import TRADITIONAL_ABBREVIATIONS, US_STATES, state_abbreviations
 
 MONTHS = [calendar.month_name[i] for i in range(1, 13)]
 MONTH_ABBREVIATIONS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"]

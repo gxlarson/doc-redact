@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from PIL import Image
 
-from rvlcdip_redact import layout
+from doc_redact import layout
 
 
 @dataclass(frozen=True)

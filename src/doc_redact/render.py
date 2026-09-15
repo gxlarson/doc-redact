@@ -10,12 +10,12 @@ from dataclasses import dataclass, field
 import numpy as np
 from PIL import Image, ImageDraw
 
-from rvlcdip_redact import (
+from doc_redact import (
     addresses, augment, background, baseline, fakedata, geometry, handwriting, layout, ocr, people, style, typeface, weight,
 )
-from rvlcdip_redact.annotations import Annotation, BBox
-from rvlcdip_redact.categories import canonical
-from rvlcdip_redact.ocr import Word
+from doc_redact.annotations import Annotation, BBox
+from doc_redact.categories import canonical
+from doc_redact.ocr import Word
 
 log = logging.getLogger(__name__)
 

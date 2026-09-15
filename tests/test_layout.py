@@ -1,8 +1,8 @@
 import itertools
 
-from rvlcdip_redact import checks, geometry, layout
-from rvlcdip_redact.annotations import Annotation, BBox
-from rvlcdip_redact.ocr import Word
+from doc_redact import checks, geometry, layout
+from doc_redact.annotations import Annotation, BBox
+from doc_redact.ocr import Word
 
 FONT = "CourierPrime-Regular.ttf"
 

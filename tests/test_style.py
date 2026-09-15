@@ -3,8 +3,8 @@ import re
 
 import pytest
 
-from rvlcdip_redact import fakedata, style
-from rvlcdip_redact.style import AddressStyle, DigitTemplate, MaritalStyle, NumericDate, PlaceStyle, TextDate
+from doc_redact import fakedata, style
+from doc_redact.style import AddressStyle, DigitTemplate, MaritalStyle, NumericDate, PlaceStyle, TextDate
 
 
 @pytest.mark.parametrize(

@@ -15,8 +15,8 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import ndimage
 
-from rvlcdip_redact.annotations import BBox
-from rvlcdip_redact.ocr import Word
+from doc_redact.annotations import BBox
+from doc_redact.ocr import Word
 
 RING_MIN = 6  # px of paper sampled around the box, at least
 MAX_NOISE_STD = 25.0

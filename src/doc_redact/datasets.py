@@ -10,7 +10,7 @@ import posixpath
 from dataclasses import dataclass
 from typing import Callable
 
-from rvlcdip_redact.annotations import Document
+from doc_redact.annotations import Document
 
 
 def _swap_ext(url: str, ext: str) -> str:

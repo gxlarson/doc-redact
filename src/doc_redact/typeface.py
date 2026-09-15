@@ -24,8 +24,8 @@ import numpy as np
 from scipy import ndimage
 from skimage.morphology import skeletonize
 
-from rvlcdip_redact import layout
-from rvlcdip_redact.ocr import Word
+from doc_redact import layout
+from doc_redact.ocr import Word
 
 SHIFT = 3  # px searched in each direction when aligning a rendering to the scan
 SCALES = (0.97, 1.0, 1.03)  # around the width-matched size, for scans with uneven letter spacing

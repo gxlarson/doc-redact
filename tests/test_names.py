@@ -3,8 +3,8 @@ import re
 
 import pytest
 
-from rvlcdip_redact import fakedata, style
-from rvlcdip_redact.style import NameStyle, NameToken
+from doc_redact import fakedata, style
+from doc_redact.style import NameStyle, NameToken
 
 
 @pytest.mark.parametrize(
@@ -78,13 +78,13 @@ def test_capitalization_is_kept_per_word():
 
 
 def test_title_just_left_of_the_box_sets_gender():
-    from rvlcdip_redact import render
-    from rvlcdip_redact.annotations import Annotation, BBox
-    from rvlcdip_redact.ocr import Word
+    from doc_redact import render
+    from doc_redact.annotations import Annotation, BBox
+    from doc_redact.ocr import Word
 
     words = [Word("Mrs.", BBox(100, 50, 40, 20)), Word("Delia", BBox(150, 50, 60, 20)), Word("Marsh", BBox(220, 50, 70, 20))]
     box = BBox(146, 46, 150, 28)
-    from rvlcdip_redact import people
+    from doc_redact import people
 
     assert people.title_left_of(box, words) == "Mrs."
     settings = render.TextSettings(font="LiberationSerif-Regular.ttf", font_size=20, auto_font_size=False, fit_width=False)

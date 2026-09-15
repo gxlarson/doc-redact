@@ -1,6 +1,6 @@
 """Generators for plausible replacement text, one per PII category.
 
-Each generator takes an optional style detail from :mod:`rvlcdip_redact.style`;
+Each generator takes an optional style detail from :mod:`doc_redact.style`;
 without one it picks a random style.
 """
 
@@ -14,9 +14,9 @@ from typing import Callable
 
 from faker import Faker
 
-from rvlcdip_redact import style as st
-from rvlcdip_redact.categories import canonical
-from rvlcdip_redact.resources import state_abbreviations, us_cities
+from doc_redact import style as st
+from doc_redact.categories import canonical
+from doc_redact.resources import state_abbreviations, us_cities
 
 _faker = Faker()
 
