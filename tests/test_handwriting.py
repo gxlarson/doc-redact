@@ -58,6 +58,32 @@ def test_jitter_stays_near_the_unjittered_layout():
     assert abs(np.median(ys_j) - np.median(ys_p)) < 6
 
 
+def test_one_handwriting_typeface_per_document():
+    # A page written in one hand: every handwritten box gets the same typeface, chosen from the whole page.
+    from rvlcdip_redact.annotations import BBox as B
+
+    page_img = Image.new("RGB", (1200, 400), "white")
+    words, y = [], 40
+    for line in (["Hartley", "Avenue", "Springfield"], ["Tuesday", "morning", "delivery"], ["5-17-31", "Quimby"]):
+        x = 40
+        for text in line:
+            layout.draw_text(page_img, (x, y), text, HAND, 40)
+            l, t, r, b = layout.load_font(HAND, 40).getbbox(text)
+            words.append(Word(text, B(x + l - 2, y + t - 3, r - l + 4, b - t + 6), handwritten=True))
+            x += r + 50
+        y += 110
+    gray = np.asarray(page_img.convert("L"))
+    matcher = typeface.TypefaceMatcher(gray, typeface.candidates(handwriting=True))
+    face = render.document_handwriting_face(words, matcher)
+    assert face is not None
+    page = render.Page(words=words, gray=gray, handwriting_typefaces=matcher, handwriting_face=face)
+    settings = render.TextSettings(font="LiberationSerif-Regular.ttf", font_size=30, match_style=False,
+                                   match_weight=False, overrides={"name": "Ansel Fell", "birth_date": "7-12-39"})
+    fonts = {render.plan_text(Annotation(cat, w.bbox), page, settings).font
+             for cat, w in (("name", words[0]), ("birth_date", words[6]), ("name", words[7]))}
+    assert fonts == {face.spec}
+
+
 def test_handwritten_box_gets_handwriting_font_and_printed_box_does_not():
     words = [
         Word("5-17-31", BBox(100, 100, 120, 30), handwritten=True),

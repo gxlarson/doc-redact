@@ -309,7 +309,7 @@ class TypefaceMatcher:
             }
         return self._scores[key]
 
-    def choose(self, words: list[Word]) -> Typeface | None:
+    def choose(self, words: list[Word], max_words: int = MAX_WORDS) -> Typeface | None:
         """Best typeface for ``words`` (rank vote over the first few measurable ones, in the order given).
 
         Returns None if none of them can be measured.
@@ -323,6 +323,6 @@ class TypefaceMatcher:
             for rank, face in enumerate(sorted(scores, key=scores.get)):
                 totals[face] = totals.get(face, 0) + rank
             measured += 1
-            if measured == MAX_WORDS:
+            if measured == max_words:
                 break
         return min(totals, key=totals.get) if totals else None

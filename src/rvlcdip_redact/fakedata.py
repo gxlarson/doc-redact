@@ -167,6 +167,55 @@ def fake_zip(detail=None) -> str:
     return _faker.zipcode()
 
 
+INITIALS = "ABCDEFGHJKLMNPRSTW"  # letters that commonly start given names
+NAME_SUFFIXES = ["Jr", "Sr", "II", "III"]
+
+
+def _random_name_style() -> st.NameStyle:
+    first, last = st.NameToken("first"), st.NameToken("last")
+    r = random.random()
+    if r < 0.55:
+        return st.NameStyle((first, last), last_first=False)
+    if r < 0.8:
+        return st.NameStyle((first, st.NameToken("initial", dot=True), last), last_first=False)
+    return st.NameStyle((last, first), last_first=True)
+
+
+def fake_name(detail=None) -> str:
+    """A personal name in the same shape as the original (order, initials, title, suffix)."""
+    style = detail if isinstance(detail, st.NameStyle) else _random_name_style()
+    gender = style.gender or random.choice(["male", "female"])
+    given = _faker.first_name_male if gender == "male" else _faker.first_name_female
+
+    parts, comma_done = [], False
+    for tok in style.tokens:
+        if tok.kind == "title":
+            part = tok.text  # keeps gender agreement with the generated first name
+        elif tok.kind in ("first", "middle"):
+            part = given().upper() if tok.upper else given()
+        elif tok.kind == "last":
+            part = _faker.last_name()
+            if tok.hyphenated:
+                part = f"{part}-{_faker.last_name()}"
+            if tok.upper:
+                part = part.upper()
+        elif tok.kind == "initial":
+            part = random.choice(INITIALS) + ("." if tok.dot else "")
+        elif tok.kind == "suffix":
+            suffix = random.choice(NAME_SUFFIXES)
+            part = suffix + ("." if tok.dot and suffix in ("Jr", "Sr") else "")
+        elif re.search(r"[A-Za-z]", tok.text):
+            # Unrecognized token with letters, e.g. a nickname in parentheses: replace the letters, keep the punctuation.
+            part = re.sub(r"[A-Za-z][A-Za-z'-]*", lambda m: given(), tok.text)
+        else:
+            part = tok.text
+        if style.last_first and tok.kind == "last" and not comma_done:
+            part += ","
+            comma_done = True
+        parts.append(part)
+    return " ".join(parts)
+
+
 GENERATORS: dict[str, Callable[..., str]] = {  # keyed by canonical category (see categories.py)
     "age": fake_age,
     "birth_date": fake_date,
@@ -181,6 +230,7 @@ GENERATORS: dict[str, Callable[..., str]] = {  # keyed by canonical category (se
     "city": fake_city,
     "state": fake_state,
     "zip": fake_zip,
+    "name": fake_name,
 }
 
 

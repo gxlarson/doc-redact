@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
 from dataclasses import dataclass, field
@@ -69,6 +70,19 @@ class Page:
     skew: float = 0.0  # page-wide baseline slope, used when a line is too short to fit its own
     handwriting_typefaces: typeface.TypefaceMatcher | None = None
     rgb: np.ndarray | None = None  # original page in color, for sampling paper
+    handwriting_face: typeface.Typeface | None = None  # the page's single handwriting typeface, if chosen
+
+
+def document_handwriting_face(
+    words: list[Word], matcher: typeface.TypefaceMatcher, max_words: int = 8
+) -> typeface.Typeface | None:
+    """One handwriting typeface for the whole page, voted on by its longest handwritten words.
+
+    A document is assumed to be filled in by one person, so mixing handwriting
+    fonts between its fields would look like several writers.
+    """
+    handwritten = sorted((w for w in words if w.handwritten), key=lambda w: -len(w.text))
+    return matcher.choose(handwritten, max_words=max_words)
 
 
 def erase(image: Image.Image, bbox: BBox, page: Page, settings: TextSettings) -> Image.Image:
@@ -115,6 +129,11 @@ def choose_font(bbox: BBox, inside: list[Word], page: Page, settings: TextSettin
 
     if not settings.match_font:
         return settings.font, False
+    if handwritten and page.handwriting_face is not None:
+        # One writer per document: every handwritten box uses the typeface chosen for the page.
+        log.debug("typeface for box at (%d, %d): %s (handwriting, per document)", bbox.left, bbox.top,
+                  page.handwriting_face.name)
+        return page.handwriting_face.spec, True
     matcher = page.handwriting_typefaces if handwritten else page.typefaces
     fallback = settings.handwriting_font if handwritten else settings.font
     if matcher is None:
@@ -124,6 +143,17 @@ def choose_font(bbox: BBox, inside: list[Word], page: Page, settings: TextSettin
     log.debug("typeface for box at (%d, %d): %s%s", bbox.left, bbox.top,
               face.name if face else f"fallback {fallback}", " (handwriting)" if handwritten else "")
     return (face.spec if face else fallback), handwritten
+
+
+def title_left_of(bbox: BBox, words: list[Word]) -> str | None:
+    """A title ("Mr.", "Mrs.") printed just left of a name box on the same line, if any."""
+    row = [w for w in geometry.words_in_row(bbox, words) if w.bbox.right <= bbox.left + 3]
+    if not row:
+        return None
+    nearest = max(row, key=lambda w: w.bbox.right)
+    if bbox.left - nearest.bbox.right > 2 * bbox.height:
+        return None
+    return nearest.text if nearest.text.rstrip(".").lower() in style.TITLES else None
 
 
 RULE_GAP = 2.0  # px between a snapped baseline and the top of its rule
@@ -197,6 +227,10 @@ def plan_text(annotation: Annotation, page: Page, settings: TextSettings) -> Pla
             # Trailing punctuation past the box edge ("1958;") survives the white-out; don't draw it twice.
             style_source = original.rstrip(",;:.")
         detected = style.detect(category, style_source)
+        if canonical(category) == "name" and isinstance(detected.detail, style.NameStyle):
+            title = title_left_of(bbox, page_words)
+            if title:
+                detected = dataclasses.replace(detected, detail=dataclasses.replace(detected.detail, title_outside=title))
 
     def generate() -> str:
         text = settings.overrides.get(category)

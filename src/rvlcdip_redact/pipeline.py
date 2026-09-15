@@ -50,6 +50,10 @@ def redact_document(image: Image.Image, doc: Document, page_ocr: dict | None, op
         words=words, gray=gray, typefaces=print_matcher, handwriting_typefaces=handwriting_matcher,
         skew=baseline.page_skew(gray, words), rgb=np.asarray(image.convert("RGB")),
     )
+    if handwriting_matcher is not None:
+        page.handwriting_face = render.document_handwriting_face(words, handwriting_matcher)
+        if page.handwriting_face is not None:
+            log.debug("%s: handwriting typeface for the document: %s", doc.stem, page.handwriting_face.name)
     for annotation in doc.annotations:
         if not has_generator(annotation.category) and annotation.category not in options.text.overrides:
             log.warning("%s: no generator for %r; region left blank", doc.stem, annotation.category)

@@ -229,6 +229,88 @@ def detect_address(text: str) -> AddressStyle | None:
     return AddressStyle(part=part, has_zip=has_zip, state=state)
 
 
+# --- personal names -------------------------------------------------------
+
+TITLES = {"mr", "mrs", "ms", "miss", "dr", "prof", "rev"}
+FEMALE_TITLES = {"mrs", "ms", "miss"}
+SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "md", "phd"}
+
+
+@dataclass(frozen=True)
+class NameToken:
+    kind: str  # "title", "first", "middle", "last", "initial", "suffix" or "literal"
+    text: str = ""  # kept verbatim for titles and literals
+    dot: bool = False  # initials and suffixes written with a period
+    hyphenated: bool = False  # "Smith-Jones"
+    upper: bool = False  # this word written in capitals ("HARTLEY, Jonas")
+
+
+def title_gender(title: str) -> str | None:
+    bare = title.rstrip(".").lower()
+    return "female" if bare in FEMALE_TITLES else "male" if bare == "mr" else None
+
+
+@dataclass(frozen=True)
+class NameStyle:
+    tokens: tuple[NameToken, ...]
+    last_first: bool  # "Last, First ..." rather than "First ... Last"
+    title_outside: str | None = None  # a title printed just left of the box ("Mr." before the field)
+
+    @property
+    def gender(self) -> str | None:
+        titles = [t.text for t in self.tokens if t.kind == "title"]
+        if titles:
+            return title_gender(titles[0])
+        return title_gender(self.title_outside) if self.title_outside else None
+
+
+def detect_name(text: str) -> NameStyle | None:
+    """The shape of a personal name: order, initials, title, suffix. None if it doesn't look like a name."""
+    t = " ".join(text.split())
+    if not t or not re.search(r"[A-Za-z]", t) or re.search(r"\d", t):
+        return None
+    last_first = bool(re.match(r"^[A-Za-z][\w'.-]*,\s", t))
+    raw = [tok for tok in re.split(r"[\s,]+", t) if tok]
+
+    kinds: list[NameToken] = []
+    words: list[int] = []  # positions of full name words, assigned first/middle/last below
+    for i, tok in enumerate(raw):
+        bare = tok.rstrip(".").lower()
+        if bare in TITLES and i == 0:
+            kinds.append(NameToken("title", text=tok))
+        elif bare in SUFFIXES and i == len(raw) - 1 and i > 0:
+            kinds.append(NameToken("suffix", dot=tok.endswith(".")))
+        elif re.fullmatch(r"[A-Za-z]\.?", tok):
+            kinds.append(NameToken("initial", dot=tok.endswith(".")))
+        elif re.fullmatch(r"[A-Za-z][A-Za-z'-]*", tok):
+            letters = re.sub(r"[^A-Za-z]", "", tok)
+            kinds.append(NameToken("word", hyphenated="-" in tok.strip("-"), upper=len(letters) > 1 and letters.isupper()))
+            words.append(i)
+        else:
+            kinds.append(NameToken("literal", text=tok))
+    if not words and not any(k.kind == "initial" for k in kinds):
+        return None
+
+    has_title = any(k.kind == "title" for k in kinds)
+    roles: dict[int, str] = {}
+    if last_first and words:
+        roles[words[0]] = "last"
+        for n, pos in enumerate(words[1:]):
+            roles[pos] = "first" if n == 0 else "middle"
+    elif len(words) == 1:
+        roles[words[0]] = "last" if has_title or any(k.kind == "initial" for k in kinds) else "first"
+    elif words:
+        roles[words[0]] = "first"
+        roles[words[-1]] = "last"
+        for pos in words[1:-1]:
+            roles[pos] = "middle"
+    tokens = tuple(
+        NameToken(roles[i], hyphenated=k.hyphenated, upper=k.upper) if k.kind == "word" else k
+        for i, k in enumerate(kinds)
+    )
+    return NameStyle(tokens=tokens, last_first=last_first)
+
+
 # --- per-category registry ------------------------------------------------
 
 @dataclass(frozen=True)
@@ -248,6 +330,7 @@ DETECTORS: dict[str, Callable[[str], object | None]] = {  # keyed by canonical c
     "home_address": detect_address,
     "state": detect_state,
     "zip": lambda t: detect_digits(t, {5, 9}),
+    "name": detect_name,
 }
 
 
