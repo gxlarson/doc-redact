@@ -14,6 +14,7 @@ from typing import Callable
 from faker import Faker
 
 from rvlcdip_redact import style as st
+from rvlcdip_redact.categories import canonical
 from rvlcdip_redact.resources import state_abbreviations, us_cities
 
 _faker = Faker()
@@ -143,7 +144,30 @@ def fake_nationality(detail=None) -> str:
     return random.choice(NATIONALITIES)
 
 
-GENERATORS: dict[str, Callable[..., str]] = {
+def fake_street(detail=None) -> str:
+    return fake_address(st.AddressStyle(part="street", has_zip=False))
+
+
+def fake_city(detail=None, max_length: int = 15) -> str:
+    city_source = _faker.city if random.randint(0, 2) == 0 else (lambda: random.choice(us_cities()))
+    city = city_source()
+    while len(city) > max_length:
+        city = city_source()
+    return city
+
+
+def fake_state(detail=None) -> str:
+    form = detail.state if isinstance(detail, st.PlaceStyle) and detail.state != "none" else None
+    return _state(form or st.random_place_style().state)
+
+
+def fake_zip(detail=None) -> str:
+    if isinstance(detail, st.DigitTemplate):
+        return _fill_digits(detail.template, first_nonzero=True)
+    return _faker.zipcode()
+
+
+GENERATORS: dict[str, Callable[..., str]] = {  # keyed by canonical category (see categories.py)
     "age": fake_age,
     "birth_date": fake_date,
     "birth_place": fake_birthplace,
@@ -153,15 +177,20 @@ GENERATORS: dict[str, Callable[..., str]] = {
     "marital_status": fake_marital_status,
     "religion": fake_religion,
     "ssn": fake_ssn,
-    # Label names used by the RVL-CDIP resume annotation round
-    "date_of_birth": fake_date,
-    "place_of_birth": fake_birthplace,
+    "street": fake_street,
+    "city": fake_city,
+    "state": fake_state,
+    "zip": fake_zip,
 }
 
 
+def has_generator(category: str) -> bool:
+    return canonical(category) in GENERATORS
+
+
 def fake_text(category: str, style: st.Style | None = None) -> str:
-    """Replacement text for ``category``; raises KeyError for unknown categories."""
-    generator = GENERATORS[category]
+    """Replacement text for ``category`` (any alias); raises KeyError for unknown categories."""
+    generator = GENERATORS[canonical(category)]
     if style is None:
         return generator()
     return st.apply_case(generator(style.detail), style.case) + style.suffix

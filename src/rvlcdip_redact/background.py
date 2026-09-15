@@ -16,12 +16,17 @@ import numpy as np
 from scipy import ndimage
 
 from rvlcdip_redact.annotations import BBox
+from rvlcdip_redact.ocr import Word
 
 RING_MIN = 6  # px of paper sampled around the box, at least
 MAX_NOISE_STD = 25.0
 SPECK_MAX_AREA = 6  # dark components up to this many px count as paper specks, not text
 SPECK_ISOLATION = 4  # px a speck must be from any larger ink
 LINE_MIN_LENGTH = 30
+LINE_MIN_CONTRAST = 18  # gray levels below the paper for a pixel to count toward a line
+LINE_GAP_BRIDGE = 5  # px breaks along a faint line that are bridged
+LINE_MIN_COVERAGE = 0.8  # share of the between-words stretch where a real line's pixels are present
+LINE_MIN_FREE_FRACTION = 0.2  # a line hidden behind words for more than 80% of its length is not trusted
 LINE_MAX_SLOPE = math.tan(math.radians(5))
 LINE_OVERHANG = 5  # px past the box edge that marks a line as part of the form
 # A line that stays inside the box must instead span most of it and be ruler-straight;
@@ -119,27 +124,74 @@ def generate_paper(paper: Paper, height: int, width: int, rng: np.random.Generat
     return np.clip(patch, 0, 255).astype(np.uint8)
 
 
-def detect_rules(gray: np.ndarray, bbox: BBox) -> list[Rule]:
-    """Long, thin, nearly horizontal lines that run through ``bbox`` and continue past its edge."""
+def _visible_between_words(
+    ink: np.ndarray, origin: tuple[int, int], left: float, right: float, intercept: float, slope: float,
+    thickness: float, words: list[Word],
+) -> bool:
+    """Is the line present along the stretches where no OCR word covers it?
+
+    A ruled line continues through the spaces between words; a row of letter
+    bottoms or serifs (which bridging can join into a long thin run) does not.
+    A word only hides the line where the line crosses the middle of the word,
+    so underlines just below a word still count as visible there.
+    """
+    x0, y0 = origin
+    columns = np.arange(int(left), int(right))
+    centers = intercept + slope * columns
+    half = thickness / 2 + 1
+    covered = np.zeros(len(columns), bool)
+    for w in words:
+        b = w.bbox
+        hides = (columns >= b.left) & (columns <= b.right) & (centers >= b.top + 0.15 * b.height) \
+            & (centers <= b.bottom - 0.15 * b.height)
+        covered |= hides
+    free = ~covered
+    if free.sum() < LINE_MIN_FREE_FRACTION * len(columns):
+        return False  # almost all of it runs through words: can't tell a line from letters
+    present = np.zeros(len(columns), bool)
+    for k in np.nonzero(free)[0]:
+        ys = np.arange(int(np.floor(centers[k] - half)), int(np.ceil(centers[k] + half)) + 1) - y0
+        ys = ys[(ys >= 0) & (ys < ink.shape[0])]
+        xi = columns[k] - x0
+        if 0 <= xi < ink.shape[1] and len(ys):
+            present[k] = ink[ys, xi].any()
+    return present[free].mean() >= LINE_MIN_COVERAGE
+
+
+def detect_rules(gray: np.ndarray, bbox: BBox, words: list[Word] | None = None) -> list[Rule]:
+    """Long, thin, nearly horizontal lines that run through ``bbox``.
+
+    ``words`` (the page's OCR words) let a candidate be checked in the gaps
+    between words, which rejects rows of letter bottoms that merely look like lines.
+    """
     reach = max(LINE_MIN_LENGTH, int(bbox.height * 2))
     x0, y0, x1, y1 = _clip_box(bbox, gray.shape, reach, 3)
     region = gray[y0:y1, x0:x1]
     if region.size == 0:
         return []
     background, darkest = float(np.percentile(region, 90)), float(region.min())
-    if background - darkest < 60:
+    if background - darkest < LINE_MIN_CONTRAST:
         return []
-    ink = region < (background + darkest) / 2
+    # Ruled notebook lines can be only ~25 levels darker than the paper, far lighter than the
+    # writing on them, so lines get their own threshold just below the paper's noise level.
+    paper = region[region >= background - 40]
+    noise = float(paper.std()) if paper.size else 0.0
+    ink = region < background - max(LINE_MIN_CONTRAST, 3 * noise)
 
-    # Bridge the 1 px steps of slightly tilted lines, then keep only long horizontal runs.
+    # Bridge the 1 px steps of slightly tilted lines and small breaks in faint ones,
+    # then keep only long horizontal runs.
     length = max(LINE_MIN_LENGTH, int(bbox.height * 1.5))
     bridged = ndimage.binary_dilation(ink, structure=np.ones((3, 1), bool))
-    runs = ndimage.binary_opening(bridged, structure=np.ones((1, length), bool)) & ink
+    bridged = ndimage.binary_closing(bridged, structure=np.ones((1, LINE_GAP_BRIDGE), bool))
+    runs = ndimage.binary_opening(bridged, structure=np.ones((1, length), bool))
+    # Group the bridged runs (so a dashed faint line stays one line), but measure only real ink.
     labels, count = ndimage.label(runs, structure=np.ones((3, 3)))
     rules = []
     max_thickness = max(3.0, bbox.height * 0.25)
     for sl, i in zip(ndimage.find_objects(labels), range(1, count + 1)):
-        ys, xs = np.nonzero(labels[sl] == i)
+        ys, xs = np.nonzero((labels[sl] == i) & ink[sl])
+        if len(xs) == 0:
+            continue
         ys = ys + sl[0].start
         xs = xs + sl[1].start
         left, right = xs.min() + x0, xs.max() + x0 + 1
@@ -160,6 +212,10 @@ def detect_rules(gray: np.ndarray, bbox: BBox) -> list[Rule]:
         mid = (left + right) / 2
         y_mid = intercept + slope * mid
         if not (bbox.top - thickness <= y_mid <= bbox.bottom + thickness):
+            continue
+        if words is not None and not _visible_between_words(
+            ink, (x0, y0), left, right, intercept, slope, thickness, words
+        ):
             continue
         values = region[ys, xs]
         rules.append(Rule(x0=mid, y0=float(y_mid), slope=float(slope), thickness=thickness,
@@ -187,7 +243,7 @@ def draw_rule(patch: np.ndarray, rule: Rule, origin: tuple[int, int]) -> None:
 
 def blank(
     image_rgb: np.ndarray, source_rgb: np.ndarray, source_gray: np.ndarray, bbox: BBox,
-    rng: np.random.Generator, paper_fill: bool = True, keep_lines: bool = True,
+    rng: np.random.Generator, paper_fill: bool = True, keep_lines: bool = True, words: list[Word] | None = None,
 ) -> list[Rule]:
     """Erase ``bbox`` in ``image_rgb`` in place, measuring paper and lines on the untouched source page."""
     x0, y0, x1, y1 = _clip_box(bbox, image_rgb.shape)
@@ -197,7 +253,7 @@ def blank(
         patch = generate_paper(sample_paper(source_rgb, source_gray, bbox), y1 - y0, x1 - x0, rng)
     else:
         patch = np.full((y1 - y0, x1 - x0, 3), 255, np.uint8)
-    rules = detect_rules(source_gray, bbox) if keep_lines else []
+    rules = detect_rules(source_gray, bbox, words) if keep_lines else []
     for rule in rules:
         draw_rule(patch, rule, (x0, y0))
     image_rgb[y0:y1, x0:x1] = patch

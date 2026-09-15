@@ -243,6 +243,46 @@ def skeleton_distance(scan: np.ndarray, text: str, spec: str) -> float:
     return best
 
 
+BODY_ROW_FRACTION = 0.2  # rows with less ink than this (vs the densest row) don't count toward height
+
+
+def body_height(mask: np.ndarray, line_run: int | None = None) -> int | None:
+    """Height of the dense rows of ``mask``, ignoring sparse strokes and long horizontal lines.
+
+    On tightly lined handwriting, ascenders and descenders from the lines above
+    and below reach into a word's crop; they are sparse rows and drop out here,
+    as does a ruled line under the word (removed as a long horizontal run).
+    """
+    if line_run and mask.shape[1] > line_run:
+        mask = mask & ~ndimage.binary_opening(mask, structure=np.ones((1, line_run), bool))
+    rows = mask.sum(axis=1)
+    if rows.max() == 0:
+        return None
+    dense = np.nonzero(rows >= BODY_ROW_FRACTION * rows.max())[0]
+    return int(dense.max() - dense.min() + 1)
+
+
+def height_matched_size(spec: str, words: list[Word], gray: np.ndarray) -> float | None:
+    """Font size at which ``words`` rendered in ``spec`` have the same body height as the scan (median).
+
+    Handwriting fonts differ wildly in width for the same height, so sizing them
+    by width alone can make a wide cursive face far taller than the writer's hand.
+    """
+    estimates = []
+    for word in words:
+        if len(re.findall(r"[A-Za-z0-9]", word.text)) < 3:
+            continue
+        scan = scan_word_mask(gray, word)
+        rendered = _render_mask(word.text, spec, 100)
+        if scan is None or rendered is None:
+            continue
+        scan_h = body_height(scan, line_run=max(20, int(word.bbox.height * 1.5)))
+        rendered_h = body_height(rendered)
+        if scan_h and rendered_h:
+            estimates.append(100 * scan_h / rendered_h)
+    return float(np.median(estimates)) if estimates else None
+
+
 # --- choosing -------------------------------------------------------------
 
 def usable_words(words: list[Word]) -> list[Word]:

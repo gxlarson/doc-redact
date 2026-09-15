@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Union
 
+from rvlcdip_redact.categories import canonical
 from rvlcdip_redact.resources import US_STATES, state_abbreviations
 
 MONTHS = [calendar.month_name[i] for i in range(1, 13)]
@@ -125,23 +126,35 @@ class PlaceStyle:
     state: str
 
 
+def classify_state(state: str) -> str | None:
+    """How a US state is written: a PlaceStyle.state form, or None if it isn't a recognizable state."""
+    state = state.strip()
+    compact = state.replace(" ", "")
+    if compact.lower() in (a.lower() for a in state_abbreviations()):
+        return "abbrev"
+    if re.fullmatch(r"[A-Z]{2}", state):
+        return "postal"
+    if re.fullmatch(r"[A-Z]\.[A-Z]\.", compact):
+        return "postal_dotted"
+    if re.fullmatch(r"[A-Z][a-z]\.", state):
+        return "title_dot"
+    if state.lower() in (s.lower() for s in US_STATES.values()):
+        return "full"
+    return None
+
+
 def detect_place(text: str) -> PlaceStyle | None:
     t = " ".join(text.split())
     if "," not in t:
         return PlaceStyle("none") if re.fullmatch(r"[A-Za-z .'-]+", t) else None
-    state = t.rsplit(",", 1)[1].strip()
-    compact = state.replace(" ", "")
-    if compact.lower() in (a.lower() for a in state_abbreviations()):
-        return PlaceStyle("abbrev")
-    if re.fullmatch(r"[A-Z]{2}", state):
-        return PlaceStyle("postal")
-    if re.fullmatch(r"[A-Z]\.[A-Z]\.", compact):
-        return PlaceStyle("postal_dotted")
-    if re.fullmatch(r"[A-Z][a-z]\.", state):
-        return PlaceStyle("title_dot")
-    if state.lower() in (s.lower() for s in US_STATES.values()):
-        return PlaceStyle("full")
-    return None
+    form = classify_state(t.rsplit(",", 1)[1])
+    return PlaceStyle(form) if form else None
+
+
+def detect_state(text: str) -> PlaceStyle | None:
+    """A box holding just a state ("TX", "Tex.", "Texas")."""
+    form = classify_state(" ".join(text.split()))
+    return PlaceStyle(form) if form else None
 
 
 def random_place_style() -> PlaceStyle:
@@ -225,17 +238,21 @@ class Style:
     suffix: str = ""  # trailing punctuation to re-append, e.g. ";" in "February 3, 1941;"
 
 
-DETECTORS: dict[str, Callable[[str], object | None]] = {
+DETECTORS: dict[str, Callable[[str], object | None]] = {  # keyed by canonical category
     "birth_date": detect_date,
-    "date_of_birth": detect_date,
     "birth_place": detect_place,
-    "place_of_birth": detect_place,
     "ssn": lambda t: detect_digits(t, {9}),
     "home_phone": lambda t: detect_digits(t, {7, 10, 11}),
     "age": lambda t: detect_digits(t, {1, 2, 3}),
     "marital_status": detect_marital,
     "home_address": detect_address,
+    "state": detect_state,
+    "zip": lambda t: detect_digits(t, {5, 9}),
 }
+
+
+def detector_for(category: str) -> Callable[[str], object | None] | None:
+    return DETECTORS.get(canonical(category))
 
 
 def _punctuation_variants(text: str) -> list[tuple[str, str]]:
@@ -255,7 +272,7 @@ def detect(category: str, original: str) -> Style:
     text = "\n".join(" ".join(line.split()) for line in original.strip().splitlines() if line.strip())
     case = detect_case(text)
     variants = _punctuation_variants(text)
-    detector = DETECTORS.get(category)
+    detector = detector_for(category)
     if detector:
         for core, suffix in variants:
             if (detail := detector(core)) is not None:

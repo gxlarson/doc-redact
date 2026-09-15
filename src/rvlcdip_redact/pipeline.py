@@ -14,7 +14,7 @@ from PIL import Image
 from rvlcdip_redact import baseline, checks, ocr, render, typeface
 from rvlcdip_redact.annotations import Document
 from rvlcdip_redact.datasets import Dataset
-from rvlcdip_redact.fakedata import GENERATORS
+from rvlcdip_redact.fakedata import has_generator
 from rvlcdip_redact.remote import Fetcher
 
 log = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ def redact_document(image: Image.Image, doc: Document, page_ocr: dict | None, op
         skew=baseline.page_skew(gray, words), rgb=np.asarray(image.convert("RGB")),
     )
     for annotation in doc.annotations:
-        if annotation.category not in GENERATORS and annotation.category not in options.text.overrides:
+        if not has_generator(annotation.category) and annotation.category not in options.text.overrides:
             log.warning("%s: no generator for %r; region left blank", doc.stem, annotation.category)
             image = render.erase(image, annotation.bbox, page, options.text)
             continue

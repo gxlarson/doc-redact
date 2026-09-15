@@ -4,6 +4,7 @@ from PIL import Image
 
 from rvlcdip_redact import background, layout
 from rvlcdip_redact.annotations import BBox
+from rvlcdip_redact.ocr import Word
 
 HAND = "PatrickHand-Regular.ttf"
 BOX = BBox(left=200, top=80, width=260, height=40)
@@ -91,6 +92,60 @@ def test_straight_underline_inside_the_box_is_kept_even_when_tilted():
     gray = np.asarray(Image.fromarray(rgb).convert("L"))
     [rule] = background.detect_rules(gray, BOX)
     assert np.degrees(np.arctan(rule.slope)) == pytest.approx(2.7, abs=0.3)
+
+
+def test_faint_notebook_rules_under_dark_handwriting_are_found():
+    # White paper, light gray ruled lines (~25 levels darker, with breaks), dark writing crossing them.
+    rgb, _ = _scan(paper=255, noise=0, specks=0, line_y=None, text="")
+    for y in (88, 119):
+        rgb[y, 20:780] = 230
+        rgb[y, 20:780:17] = 255  # scanner breaks along the line
+    img = Image.fromarray(rgb)
+    layout.draw_text(img, (215, 72), "5-17-31 box", HAND, 44)
+    gray = np.asarray(img.convert("L"))
+    rules = background.detect_rules(gray, BOX)
+    assert sorted(round(r.y_at(300)) for r in rules) == [88, 119]
+    assert all(220 <= r.gray <= 240 for r in rules)  # redrawn as faint as they were
+
+
+def _typed_words(img, texts, font, size, x, y):
+    """Draw typed words on one line; return OCR-like word boxes."""
+    words = []
+    f = layout.load_font(font, size)
+    for t in texts:
+        layout.draw_text(img, (x, y), t, font, size)
+        l, top, r, b = f.getbbox(t)
+        words.append(Word(t, BBox(x + l - 1, y + top - 3, r - l + 2, b - top + 5)))
+        x += r + f.getlength(" ") * 1.2
+    return words
+
+
+def test_rows_of_typewriter_serifs_are_not_mistaken_for_lines():
+    img = Image.new("RGB", (800, 220), "white")
+    words = _typed_words(img, ["836", "HIMMEL", "MINIMUM", "LANE"], "CourierPrime-Bold.ttf", 34, 205, 80)
+    gray = np.asarray(img.convert("L"))
+    assert background.detect_rules(gray, BOX, words) == []
+
+
+def test_faint_rule_crossing_handwriting_is_still_found_with_words():
+    rgb, _ = _scan(paper=255, noise=0, specks=0, line_y=None, text="")
+    rgb[112, 20:780] = 228
+    img = Image.fromarray(rgb)
+    words = _typed_words(img, ["5-17-31", "box"], HAND, 44, 215, 76)
+    for w in words:
+        object.__setattr__(w, "handwritten", True)
+    gray = np.asarray(img.convert("L"))
+    [rule] = background.detect_rules(gray, BOX, words)
+    assert round(rule.y_at(300)) == 112
+
+
+def test_noisy_or_halftone_paper_does_not_produce_lines():
+    rgb, gray = _scan(paper=225, noise=9.0, specks=0.004, line_y=None, text="")
+    assert background.detect_rules(gray, BOX) == []
+    shaded = rgb.copy()
+    shaded[60:140, 100:700] = 255
+    shaded[60:140:3, 100:700:3] = 150  # halftone dot screen over the box area
+    assert background.detect_rules(np.asarray(Image.fromarray(shaded).convert("L")), BOX) == []
 
 
 def test_short_or_wobbly_strokes_inside_the_box_are_not_lines():

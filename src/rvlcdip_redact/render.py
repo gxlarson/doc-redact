@@ -9,10 +9,10 @@ from dataclasses import dataclass, field
 import numpy as np
 from PIL import Image, ImageDraw
 
-from rvlcdip_redact import augment, background, baseline, fakedata, geometry, handwriting, layout, ocr, style, weight
+from rvlcdip_redact import augment, background, baseline, fakedata, geometry, handwriting, layout, ocr, style, typeface, weight
 from rvlcdip_redact.annotations import Annotation, BBox
+from rvlcdip_redact.categories import canonical
 from rvlcdip_redact.ocr import Word
-from rvlcdip_redact.typeface import TypefaceMatcher
 
 log = logging.getLogger(__name__)
 
@@ -65,9 +65,9 @@ class Placement:
 class Page:
     words: list[Word]
     gray: np.ndarray | None = None  # original page, for measuring weight, typeface and baselines
-    typefaces: TypefaceMatcher | None = None
+    typefaces: typeface.TypefaceMatcher | None = None
     skew: float = 0.0  # page-wide baseline slope, used when a line is too short to fit its own
-    handwriting_typefaces: TypefaceMatcher | None = None
+    handwriting_typefaces: typeface.TypefaceMatcher | None = None
     rgb: np.ndarray | None = None  # original page in color, for sampling paper
 
 
@@ -78,7 +78,7 @@ def erase(image: Image.Image, bbox: BBox, page: Page, settings: TextSettings) ->
     canvas = np.array(image.convert("RGB"))
     rng = np.random.default_rng(np.random.randint(0, 2**31 - 1))  # follows --seed via numpy's global state
     rules = background.blank(canvas, page.rgb, page.gray, bbox, rng,
-                             paper_fill=settings.paper_fill, keep_lines=settings.keep_lines)
+                             paper_fill=settings.paper_fill, keep_lines=settings.keep_lines, words=page.words)
     if rules:
         log.debug("redrew %d line(s) in box at (%d, %d)", len(rules), bbox.left, bbox.top)
     return Image.fromarray(canvas)
@@ -173,10 +173,15 @@ def plan_text(annotation: Annotation, page: Page, settings: TextSettings) -> Pla
             or layout.estimate_font_size(font_spec, geometry.words_in_row(bbox, page_words))
             or size
         )
+        if handwritten and page.gray is not None and inside:
+            # Cap by the writer's ink height too: wide cursive faces sized by width alone come out too tall.
+            by_height = typeface.height_matched_size(font_spec, inside, page.gray)
+            if by_height is not None:
+                size = max(layout.MIN_FONT_SIZE, min(size, round(by_height)))
     font = layout.load_font(font_spec, size)
     spacing = layout.line_spacing_for_pitch(font, geometry.line_pitch(lines))
 
-    if category in MULTILINE_CATEGORIES:
+    if canonical(category) in MULTILINE_CATEGORIES:
         if lines:
             single_line = len(lines) == 1
         else:
@@ -219,6 +224,9 @@ def plan_text(annotation: Annotation, page: Page, settings: TextSettings) -> Pla
         size = layout.shrink_to_fit(font_spec, size, text, max_width, spacing)
         font = layout.load_font(font_spec, size)
 
+    # Start the ink, not the drawing origin, where the original ink started: swashes and
+    # side bearings otherwise push text left over labels like "SSN #".
+    x -= layout.text_bbox(font, text, spacing)[0]
     _, ink_top, _, ink_bottom = layout.text_bbox(font, text, spacing)
     ascent = font.getmetrics()[0]  # Pillow's default anchor puts the first baseline this far below y
     scanned = locate_baseline(bbox, lines, page)
@@ -229,7 +237,7 @@ def plan_text(annotation: Annotation, page: Page, settings: TextSettings) -> Pla
         if settings.match_skew:
             angle = scanned.angle_deg
         if settings.keep_lines and page.gray is not None:
-            rules = background.detect_rules(page.gray, bbox)
+            rules = background.detect_rules(page.gray, bbox, page.words)
             snapped = snap_to_rules(baseline_y, x, font, spacing, text.count("\n") + 1, rules)
             if snapped is not None:
                 baseline_y, spacing, rule_angle = snapped
