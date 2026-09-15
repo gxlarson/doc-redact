@@ -76,8 +76,6 @@ def test_birth_place_shares_city_and_state_with_each_boxs_state_form():
 def test_age_and_text_values_repeat_consistently():
     shared, annotations, texts = _render([
         ("age", "43"), ("age", "43 yrs"), ("religion", "Lutheran"), ("religious_affiliation", "LUTHERAN"),
-        ("marital_status", "Married"), ("marital_status", "married"),
     ], seed=3)
     assert texts[0] == re.sub(r"\D", "", texts[1]) and texts[1].endswith("yrs")
     assert texts[2].lower() == texts[3].lower() and texts[3].isupper()
-    assert texts[4].lower() == texts[5].lower()

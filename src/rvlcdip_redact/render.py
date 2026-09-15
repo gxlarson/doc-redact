@@ -76,6 +76,7 @@ class Page:
     identities: dict[Annotation, people.Person] = field(default_factory=dict)  # name boxes linked to one person
     addresses: dict[Annotation, addresses.FakeAddress] = field(default_factory=dict)  # shared address components
     shared_values: dict[Annotation, object] = field(default_factory=dict)  # repeated SSNs, phones, dates, ...
+    family: fakedata.Family | None = None  # the document's marital status and children, if it has marital boxes
 
 
 def document_handwriting_face(
@@ -228,6 +229,8 @@ def plan_text(annotation: Annotation, page: Page, settings: TextSettings) -> Pla
                 identity=page.identities.get(annotation),  # same person elsewhere on the page -> same fake name
             ))
     shared = page.addresses.get(annotation) or page.shared_values.get(annotation)
+    if canonical(category) == "marital_status":
+        shared = page.family  # one fake status and children count for the whole document
     if shared is not None and canonical(category) in fakedata.IDENTITY_CATEGORIES:
         # The same real value elsewhere on the page -> the same fake value, in this box's format
         # (applies even without style matching).

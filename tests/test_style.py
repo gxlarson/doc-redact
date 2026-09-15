@@ -69,7 +69,7 @@ def test_case_and_short_forms():
     assert style.detect("religion", "CATHOLIC").case == "upper"
     fakedata.seed(0)
     assert fakedata.fake_text("religion", style.Style(case="upper")).isupper()
-    assert fakedata.fake_marital_status(MaritalStyle(short=True, dot=True)) in {"S.", "M."}
+    assert fakedata.fake_marital_status(MaritalStyle(short=True, dot=True)) in {"S.", "M.", "D.", "W."}
     assert style.detect_marital("M") == MaritalStyle(short=True, dot=False)
 
 
@@ -81,7 +81,7 @@ def test_case_and_short_forms():
         ("birth_date", "July 4, 07;", TextDate, ";"),
         ("birth_place", "Utica, N.Y.,", PlaceStyle, ","),
         ("birth_place", "Keene, N.H.", PlaceStyle, ""),
-        ("marital_status", "Married,", MaritalStyle, ","),
+        ("marital_status", "Married,", style.StatusStyle, ","),
         ("citizenship_nationality", "American;", type(None), ";"),
     ],
 )

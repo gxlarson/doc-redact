@@ -23,7 +23,9 @@ from rvlcdip_redact.ocr import Word
 from rvlcdip_redact.people import similar_names
 from rvlcdip_redact.resources import US_STATES
 
-TEXT_CATEGORIES = {"citizenship_nationality", "religion", "marital_status"}
+# marital_status is not here: a document's marital boxes share one fakedata.Family instead
+# (status and children are often annotated as separate boxes, e.g. "Married" and "2 children").
+TEXT_CATEGORIES = {"citizenship_nationality", "religion"}
 VALUE_CATEGORIES = {"ssn", "home_phone", "birth_date", "birth_place", "age"} | TEXT_CATEGORIES
 
 

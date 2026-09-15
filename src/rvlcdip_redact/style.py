@@ -242,15 +242,72 @@ class MaritalStyle:
     dot: bool
 
 
-_MARITAL_CODED = re.compile(r"[A-Za-z]\.?\s*\d[\d,\s]*[.;,]?")  # "m. 51;" (married '43), "c. 2." (2 children)
+# "m. 51;" (married '51), "c. 2." (2 children), or several codes in one box: "m. 51; c. 2."
+_MARITAL_CODED = re.compile(r"(?:[A-Za-z]\.?\s*\d[\d,\s]*[.;,]?\s*)+")
+
+STATUS_WORDS = ["married", "single", "divorced", "widowed", "separated", "unmarried", "engaged"]
+NUMBER_WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+_CHILD_NOUNS = r"children|child|kids|kid|daughters|daughter|sons|son"
+_NUMBER = r"\d{1,2}|" + "|".join(NUMBER_WORDS) + r"|none"
+_CHILDREN_COUNT_FIRST = re.compile(rf"(?P<num>{_NUMBER})\s*(?P<noun>{_CHILD_NOUNS})", re.I)  # "2 children", "3children"
+_CHILDREN_LABEL_FIRST = re.compile(rf"(?P<noun>{_CHILD_NOUNS})\s*(?P<colon>:)?\s*(?P<num>{_NUMBER})", re.I)  # "Children: 2"
+_STATUS = re.compile(rf"(?P<status>{'|'.join(STATUS_WORDS)})", re.I)
+_COMBINED_SEPARATOR = re.compile(r"\s*(,|;|-|with)\s*", re.I)
 
 
-def detect_marital(text: str) -> MaritalStyle | DigitTemplate | None:
+@dataclass(frozen=True)
+class ChildrenStyle:
+    """How a number of children is written: "2 children", "Three children", "Children: None"."""
+
+    number: str  # "digit" or "word"
+    noun: str  # "children", "daughters", "sons" or "kids" (singular chosen by count)
+    label_first: bool  # "Children: 2" rather than "2 children"
+    colon: bool = False
+    capitalized: bool = False  # the first letter was a capital ("Three children")
+
+
+@dataclass(frozen=True)
+class StatusStyle:
+    """Just a status word ("Married", "single")."""
+
+    capitalized: bool = True
+
+
+@dataclass(frozen=True)
+class CombinedStyle:
+    """Status followed by children: "Married, 2 children", "Married - Three Children"."""
+
+    status: StatusStyle
+    separator: str  # the text between the two parts, e.g. ", " or " - " or " with "
+    children: ChildrenStyle
+
+
+def _children_style(t: str) -> ChildrenStyle | None:
+    for pattern, label_first in ((_CHILDREN_COUNT_FIRST, False), (_CHILDREN_LABEL_FIRST, True)):
+        if m := pattern.fullmatch(t):
+            noun = m["noun"].lower()
+            plural = {"child": "children", "kid": "kids", "daughter": "daughters", "son": "sons"}.get(noun, noun)
+            return ChildrenStyle(
+                number="digit" if m["num"].isdigit() else "word", noun=plural, label_first=label_first,
+                colon=bool(label_first and m["colon"]), capitalized=t[:1].isupper(),
+            )
+    return None
+
+
+def detect_marital(text: str) -> MaritalStyle | DigitTemplate | StatusStyle | ChildrenStyle | CombinedStyle | None:
     t = " ".join(text.split())
     if _MARITAL_CODED.fullmatch(t):
         return DigitTemplate(t)
     if re.fullmatch(r"[A-Za-z]\.?", t):
         return MaritalStyle(short=True, dot=t.endswith("."))
+    if _STATUS.fullmatch(t):
+        return StatusStyle(capitalized=t[:1].isupper())
+    if children := _children_style(t):
+        return children
+    if (m := _STATUS.match(t)) and (sep := _COMBINED_SEPARATOR.match(t, m.end())):
+        if children := _children_style(t[sep.end():]):
+            separator = t[m.end():sep.end()]
+            return CombinedStyle(StatusStyle(capitalized=t[:1].isupper()), separator, children)
     if re.fullmatch(r"[A-Za-z].*", t) and t[-1] not in ",;:.":  # trailing punctuation is peeled off by detect()
         return MaritalStyle(short=False, dot=False)
     return None

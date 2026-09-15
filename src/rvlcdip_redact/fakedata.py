@@ -9,6 +9,7 @@ from __future__ import annotations
 import calendar
 import random
 import re
+from dataclasses import dataclass
 from typing import Callable
 
 from faker import Faker
@@ -102,19 +103,61 @@ def fake_religion(detail=None) -> str:
     return random.choice(RELIGIONS)
 
 
-@_shared
-def fake_marital_status(detail=None) -> str:
+@dataclass(frozen=True)
+class Family:
+    """One document's fake marital status and number of children, shared by all its marital boxes."""
+
+    status: str  # "Married", "Single", ...
+    children: int
+
+
+def fake_family() -> Family:
+    children = random.choice([0, 0, 1, 2, 2, 3, 4])
+    statuses = ["Married"] * 6 + ["Divorced", "Widowed"] + ([] if children else ["Single"] * 3)
+    return Family(status=random.choice(statuses), children=children)
+
+
+def _children_text(style: st.ChildrenStyle, n: int) -> str:
+    noun = style.noun if n != 1 else {"children": "child", "kids": "kid", "daughters": "daughter", "sons": "son"}[style.noun]
+    if style.label_first:
+        label = noun[:1].upper() + noun[1:] if style.capitalized else noun
+        count = "None" if n == 0 else str(n) if style.number == "digit" else st.NUMBER_WORDS[n] if n <= 10 else str(n)
+        return f"{label}{':' if style.colon else ''} {count}"
+    if n == 0:
+        count = "no"  # "no children" reads naturally where "0 children" does not
+    elif style.number == "digit":
+        count = str(n)
+    else:
+        count = st.NUMBER_WORDS[n] if n <= 10 else str(n)
+    text = f"{count} {noun if n != 0 else style.noun}"
+    return text[:1].upper() + text[1:] if style.capitalized else text
+
+
+def fake_marital_status(detail=None, identity=None) -> str:
+    """Status and/or children in the original's shape; ``identity`` (a Family) keeps a document's boxes consistent."""
+    family = identity if isinstance(identity, Family) else fake_family()
+    status = family.status if detail is None or getattr(detail, "capitalized", True) else family.status.lower()
     if isinstance(detail, st.DigitTemplate):
-        return _fill_digits(detail.template)
+        # Coded entries: the children code ("c. 2.") carries the family's count; other codes get new digits.
+        def code(m: re.Match) -> str:
+            letter, rest = m.group(1), m.group(2)
+            numbers = re.findall(r"\d+", rest)
+            if letter.lower() == "c" and len(numbers) == 1:
+                return letter + rest.replace(numbers[0], str(family.children), 1)
+            return letter + _fill_digits(rest)
+        return re.sub(r"([A-Za-z])(\.?\s*\d[\d,\s]*)", code, detail.template)
     if isinstance(detail, st.MaritalStyle) and detail.short:
-        return random.choice("SM") + ("." if detail.dot else "")
-    kind = random.randint(0, 3)
-    if kind == 0:
-        return "Single"
-    if kind == 1:
-        n = random.randint(1, 4)
-        return f"Married, {n} {'child' if n == 1 else 'children'}"
-    return "Married"
+        return family.status[0] + ("." if detail.dot else "")
+    if isinstance(detail, st.StatusStyle):
+        return status
+    if isinstance(detail, st.ChildrenStyle):
+        return _children_text(detail, family.children)
+    if isinstance(detail, st.CombinedStyle):
+        status = family.status if detail.status.capitalized else family.status.lower()
+        return f"{status}{detail.separator}{_children_text(detail.children, family.children)}"
+    if family.children:
+        return f"{family.status}, {family.children} {'child' if family.children == 1 else 'children'}"
+    return family.status
 
 
 def fake_address(detail=None, max_line_length: int = 25, identity=None) -> str:
