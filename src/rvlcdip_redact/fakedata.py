@@ -48,13 +48,40 @@ def _fill_digits(template: str, keep_leading_one: bool = False, first_nonzero: b
     return "".join(out)
 
 
-def fake_ssn(detail=None) -> str:
+def _pour_digits(template: str, digits: str) -> str:
+    """Write ``digits`` into the template's digit positions, in order."""
+    source = iter(digits)
+    return re.sub(r"\d", lambda _: next(source, "0"), template)
+
+
+def _shared(generator):
+    """Let a text generator reuse one value across boxes linked by values.link (a SharedText identity)."""
+    def wrapped(detail=None, identity=None):
+        if identity is None:
+            return generator(detail)
+        if identity.value is None:
+            identity.value = generator(detail)
+        return identity.value
+    wrapped.__name__ = generator.__name__
+    return wrapped
+
+
+def fake_ssn(detail=None, identity=None) -> str:
+    if identity is not None:
+        d = identity.digits
+        return _pour_digits(detail.template, d) if isinstance(detail, st.DigitTemplate) else f"{d[:3]}-{d[3:5]}-{d[5:]}"
     if isinstance(detail, st.DigitTemplate):
         return _fill_digits(detail.template, first_nonzero=True)
     return _faker.ssn()
 
 
-def fake_phone(detail=None) -> str:
+def fake_phone(detail=None, identity=None) -> str:
+    if identity is not None:
+        d = identity.digits  # 10 digits
+        if isinstance(detail, st.DigitTemplate):
+            n = len(re.findall(r"\d", detail.template))
+            return _pour_digits(detail.template, d[-7:] if n == 7 else ("1" + d if n == 11 else d))
+        return f"({d[:3]}) {d[3:6]}-{d[6:]}"
     if isinstance(detail, st.DigitTemplate):
         eleven = len(re.findall(r"\d", detail.template)) == 11
         return _fill_digits(detail.template, keep_leading_one=eleven, first_nonzero=True)
@@ -63,17 +90,19 @@ def fake_phone(detail=None) -> str:
     return f"{area}{random.randint(0, 999):03d}-{random.randint(0, 9999):04d}"
 
 
-def fake_age(detail=None) -> str:
-    age = str(random.randint(29, 59))
+def fake_age(detail=None, identity=None) -> str:
+    age = identity.digits if identity is not None else str(random.randint(29, 59))
     if isinstance(detail, st.DigitTemplate):
         return re.sub(r"\d+", age, detail.template, count=1)
     return age
 
 
+@_shared
 def fake_religion(detail=None) -> str:
     return random.choice(RELIGIONS)
 
 
+@_shared
 def fake_marital_status(detail=None) -> str:
     if isinstance(detail, st.DigitTemplate):
         return _fill_digits(detail.template)
@@ -116,8 +145,10 @@ def fake_address(detail=None, max_line_length: int = 25, identity=None) -> str:
     return f"{street}\n{city_line}"
 
 
-def fake_date(detail=None) -> str:
+def fake_date(detail=None, identity=None) -> str:
     style = detail if isinstance(detail, (st.NumericDate, st.TextDate)) else st.random_date_style()
+    if identity is not None:
+        return st.format_date(style, identity.year, identity.month, identity.day)
     year = random.randint(1930, 1970)
     month = random.randint(1, 12)
     day = random.randint(1, calendar.monthrange(year, month)[1])
@@ -137,8 +168,12 @@ def _state(form: str) -> str:
     return postal
 
 
-def fake_birthplace(detail=None, max_city_length: int = 15) -> str:
+def fake_birthplace(detail=None, max_city_length: int = 15, identity=None) -> str:
     style = detail if isinstance(detail, st.PlaceStyle) else st.random_place_style()
+    if identity is not None:
+        if style.state == "none":
+            return identity.city
+        return f"{identity.city}, {st.format_state(identity.state, style.state)}"
     city_source = _faker.city if random.randint(0, 3) == 0 else (lambda: random.choice(us_cities()))
     city = city_source()
     while len(city) > max_city_length:
@@ -148,6 +183,7 @@ def fake_birthplace(detail=None, max_city_length: int = 15) -> str:
     return f"{city}, {_state(style.state)}"
 
 
+@_shared
 def fake_nationality(detail=None) -> str:
     return random.choice(NATIONALITIES)
 
@@ -276,4 +312,8 @@ def fake_text(category: str, style: st.Style | None = None) -> str:
 
 
 # Generators that accept an ``identity`` shared with other boxes on the page.
-IDENTITY_CATEGORIES = {"home_address", "street", "city", "state", "zip"}
+IDENTITY_CATEGORIES = {
+    "home_address", "street", "city", "state", "zip",  # addresses.link
+    "ssn", "home_phone", "birth_date", "birth_place", "age",  # values.link
+    "citizenship_nationality", "religion", "marital_status",
+}

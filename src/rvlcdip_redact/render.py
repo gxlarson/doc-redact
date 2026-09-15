@@ -75,6 +75,7 @@ class Page:
     handwriting_face: typeface.Typeface | None = None  # the page's single handwriting typeface, if chosen
     identities: dict[Annotation, people.Person] = field(default_factory=dict)  # name boxes linked to one person
     addresses: dict[Annotation, addresses.FakeAddress] = field(default_factory=dict)  # shared address components
+    shared_values: dict[Annotation, object] = field(default_factory=dict)  # repeated SSNs, phones, dates, ...
 
 
 def document_handwriting_face(
@@ -226,9 +227,11 @@ def plan_text(annotation: Annotation, page: Page, settings: TextSettings) -> Pla
                 title_outside=people.title_left_of(bbox, page_words),
                 identity=page.identities.get(annotation),  # same person elsewhere on the page -> same fake name
             ))
-    if canonical(category) in fakedata.IDENTITY_CATEGORIES and annotation in page.addresses:
-        # Same street / city / zip elsewhere on the page -> same fake components (even without style matching).
-        detected = dataclasses.replace(detected or style.Style(), identity=page.addresses[annotation])
+    shared = page.addresses.get(annotation) or page.shared_values.get(annotation)
+    if shared is not None and canonical(category) in fakedata.IDENTITY_CATEGORIES:
+        # The same real value elsewhere on the page -> the same fake value, in this box's format
+        # (applies even without style matching).
+        detected = dataclasses.replace(detected or style.Style(), identity=shared)
 
     def generate() -> str:
         text = settings.overrides.get(category)

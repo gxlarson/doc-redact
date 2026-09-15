@@ -11,7 +11,7 @@ from typing import Iterator
 import numpy as np
 from PIL import Image
 
-from rvlcdip_redact import addresses, baseline, checks, ocr, people, render, typeface
+from rvlcdip_redact import addresses, baseline, checks, ocr, people, render, typeface, values
 from rvlcdip_redact.annotations import Document
 from rvlcdip_redact.datasets import Dataset
 from rvlcdip_redact.fakedata import has_generator
@@ -55,6 +55,10 @@ def redact_document(image: Image.Image, doc: Document, page_ocr: dict | None, op
     if page.addresses:
         streets = {a.street for a in page.addresses.values() if a.street}
         log.debug("%s: %d address box(es) share %d fake street(s)", doc.stem, len(page.addresses), len(streets))
+    page.shared_values = values.link(doc.annotations, words)
+    if page.shared_values:
+        log.debug("%s: %d box(es) share %d repeated value(s)", doc.stem, len(page.shared_values),
+                  len({id(v) for v in page.shared_values.values()}))
     if page.identities:
         log.debug("%s: %d name box(es) linked to %d person(s)", doc.stem, len(page.identities),
                   len({id(p) for p in page.identities.values()}))

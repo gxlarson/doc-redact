@@ -78,14 +78,31 @@ def _month_form(token: str, dot: bool) -> str | None:
 
 
 def detect_date(text: str) -> DateStyle | None:
+    parsed = parse_date(text)
+    return parsed[0] if parsed else None
+
+
+def _full_year(year: str) -> int:
+    return int(year) if len(year) == 4 else 1900 + int(year)
+
+
+def parse_date(text: str) -> tuple[DateStyle, int, int, int] | None:
+    """(style, year, month, day). Two-digit years are read as 19xx; an ambiguous numeric date as month first."""
     t = " ".join(text.split())
     if m := _NUMERIC_DATE.fullmatch(t):
         first, _, second, year = m.groups()
         pad = (len(first) == 2 and first[0] == "0") or (len(second) == 2 and second[0] == "0")
-        return NumericDate(sep=m[2], year_digits=len(year), pad=pad, day_first=int(first) > 12)
+        day_first = int(first) > 12
+        month, day = (int(second), int(first)) if day_first else (int(first), int(second))
+        if not (1 <= month <= 12 and 1 <= day <= 31):
+            return None
+        return NumericDate(sep=m[2], year_digits=len(year), pad=pad, day_first=day_first), _full_year(year), month, day
     for pattern, day_first in ((_MONTH_FIRST, False), (_DAY_FIRST, True)):
         if (m := pattern.fullmatch(t)) and (form := _month_form(m["month"], bool(m["dot"]))):
-            return TextDate(month=form, day_first=day_first, comma=bool(m["comma"]), year_digits=len(m["year"]))
+            token = m["month"].lower()
+            month = next(i for i, name in enumerate(MONTHS, start=1) if name.lower().startswith(token))
+            style = TextDate(month=form, day_first=day_first, comma=bool(m["comma"]), year_digits=len(m["year"]))
+            return style, _full_year(m["year"]), month, int(m["day"])
     return None
 
 
