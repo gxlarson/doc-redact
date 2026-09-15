@@ -1,0 +1,264 @@
+"""Detect the surface format of original PII text so replacements can mimic it.
+
+A style captures *how* a value is written (separators, abbreviations, casing,
+digit layout) but never the value itself. Detectors return ``None`` when the
+text isn't recognized, in which case generators pick a random style.
+"""
+
+from __future__ import annotations
+
+import calendar
+import random
+import re
+from dataclasses import dataclass
+from typing import Callable, Union
+
+from rvlcdip_redact.resources import US_STATES, state_abbreviations
+
+MONTHS = [calendar.month_name[i] for i in range(1, 13)]
+MONTH_ABBREVIATIONS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"]
+
+
+# --- casing ---------------------------------------------------------------
+
+def detect_case(text: str) -> str | None:
+    letters = [c for c in text if c.isalpha()]
+    if len(letters) < 2:
+        return None
+    if all(c.isupper() for c in letters):
+        return "upper"
+    if all(c.islower() for c in letters):
+        return "lower"
+    return None
+
+
+def apply_case(text: str, case: str | None) -> str:
+    if case == "upper":
+        return text.upper()
+    if case == "lower":
+        return text.lower()
+    return text
+
+
+# --- dates ----------------------------------------------------------------
+
+@dataclass(frozen=True)
+class NumericDate:
+    sep: str  # "-", "/" or "."
+    year_digits: int  # 2 or 4
+    pad: bool  # zero-padded day/month
+    day_first: bool
+
+
+@dataclass(frozen=True)
+class TextDate:
+    month: str  # "full", "abbr" or "abbr_dot"
+    day_first: bool
+    comma: bool
+    year_digits: int
+
+
+DateStyle = Union[NumericDate, TextDate]
+
+_NUMERIC_DATE = re.compile(r"(\d{1,2})\s*([-/.])\s*(\d{1,2})\s*\2\s*(\d{4}|\d{2})")
+_MONTH_TOKEN = r"(?P<month>[A-Za-z]{3,9})(?P<dot>\.)?"
+_MONTH_FIRST = re.compile(_MONTH_TOKEN + r"\s*(?P<day>\d{1,2})(?:st|nd|rd|th)?\s*(?P<comma>,)?\s*(?P<year>\d{4}|\d{2})")
+_DAY_FIRST = re.compile(r"(?P<day>\d{1,2})(?:st|nd|rd|th)?\s+" + _MONTH_TOKEN + r"\s*(?P<comma>,)?\s*(?P<year>\d{4}|\d{2})")
+
+
+def _month_form(token: str, dot: bool) -> str | None:
+    lower = token.lower()
+    if lower in (m.lower() for m in MONTHS):
+        return "full"
+    if any(m.lower().startswith(lower) for m in MONTHS):
+        return "abbr_dot" if dot else "abbr"
+    return None
+
+
+def detect_date(text: str) -> DateStyle | None:
+    t = " ".join(text.split())
+    if m := _NUMERIC_DATE.fullmatch(t):
+        first, _, second, year = m.groups()
+        pad = (len(first) == 2 and first[0] == "0") or (len(second) == 2 and second[0] == "0")
+        return NumericDate(sep=m[2], year_digits=len(year), pad=pad, day_first=int(first) > 12)
+    for pattern, day_first in ((_MONTH_FIRST, False), (_DAY_FIRST, True)):
+        if (m := pattern.fullmatch(t)) and (form := _month_form(m["month"], bool(m["dot"]))):
+            return TextDate(month=form, day_first=day_first, comma=bool(m["comma"]), year_digits=len(m["year"]))
+    return None
+
+
+def random_date_style() -> DateStyle:
+    if random.randint(0, 2) == 0:
+        return NumericDate(sep=random.choice("-/"), year_digits=4, pad=False, day_first=False)
+    if random.randint(0, 3) == 0:
+        month = "abbr_dot" if random.randint(0, 2) > 0 else "abbr"
+    else:
+        month = "full"
+    day_first = random.randint(0, 5) == 0
+    return TextDate(month=month, day_first=day_first, comma=not day_first, year_digits=4)
+
+
+def format_date(style: DateStyle, year: int, month: int, day: int) -> str:
+    y = f"{year % 100:02d}" if style.year_digits == 2 else str(year)
+    if isinstance(style, NumericDate):
+        fmt = "{:02d}" if style.pad else "{}"
+        parts = [fmt.format(day), fmt.format(month)] if style.day_first else [fmt.format(month), fmt.format(day)]
+        return style.sep.join([*parts, y])
+    if style.month == "full":
+        name = MONTHS[month - 1]
+    else:
+        name = MONTH_ABBREVIATIONS[month - 1]
+        if style.month == "abbr_dot" and name != "May":
+            name += "."
+    comma = "," if style.comma else ""
+    if style.day_first:
+        return f"{day} {name}{comma} {y}"
+    return f"{name} {day}{comma} {y}"
+
+
+# --- places ---------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PlaceStyle:
+    # "postal" (TX), "postal_dotted" (T.X.), "title_dot" (Tx.),
+    # "abbrev" (Tex.), "full" (Texas) or "none" (city only)
+    state: str
+
+
+def detect_place(text: str) -> PlaceStyle | None:
+    t = " ".join(text.split())
+    if "," not in t:
+        return PlaceStyle("none") if re.fullmatch(r"[A-Za-z .'-]+", t) else None
+    state = t.rsplit(",", 1)[1].strip()
+    compact = state.replace(" ", "")
+    if compact.lower() in (a.lower() for a in state_abbreviations()):
+        return PlaceStyle("abbrev")
+    if re.fullmatch(r"[A-Z]{2}", state):
+        return PlaceStyle("postal")
+    if re.fullmatch(r"[A-Z]\.[A-Z]\.", compact):
+        return PlaceStyle("postal_dotted")
+    if re.fullmatch(r"[A-Z][a-z]\.", state):
+        return PlaceStyle("title_dot")
+    if state.lower() in (s.lower() for s in US_STATES.values()):
+        return PlaceStyle("full")
+    return None
+
+
+def random_place_style() -> PlaceStyle:
+    kind = random.randint(0, 2)
+    if kind == 0:
+        r = random.randint(0, 3)
+        return PlaceStyle("title_dot" if r == 0 else "postal_dotted" if r == 1 else "postal")
+    return PlaceStyle("abbrev" if kind == 1 else "full")
+
+
+# --- digit layouts (SSN, phone, age) --------------------------------------
+
+@dataclass(frozen=True)
+class DigitTemplate:
+    template: str  # original text; each digit is replaced, everything else kept
+
+
+def detect_digits(text: str, allowed_counts: set[int]) -> DigitTemplate | None:
+    t = " ".join(text.split())
+    if len(re.findall(r"\d", t)) in allowed_counts:
+        return DigitTemplate(t)
+    return None
+
+
+# --- marital status / addresses -------------------------------------------
+
+@dataclass(frozen=True)
+class MaritalStyle:
+    short: bool  # a single letter such as "M" or "S."
+    dot: bool
+
+
+_MARITAL_CODED = re.compile(r"[A-Za-z]\.?\s*\d[\d,\s]*[.;,]?")  # "m. 51;" (married '43), "c. 2." (2 children)
+
+
+def detect_marital(text: str) -> MaritalStyle | DigitTemplate | None:
+    t = " ".join(text.split())
+    if _MARITAL_CODED.fullmatch(t):
+        return DigitTemplate(t)
+    if re.fullmatch(r"[A-Za-z]\.?", t):
+        return MaritalStyle(short=True, dot=t.endswith("."))
+    if re.fullmatch(r"[A-Za-z].*", t) and t[-1] not in ",;:.":  # trailing punctuation is peeled off by detect()
+        return MaritalStyle(short=False, dot=False)
+    return None
+
+
+@dataclass(frozen=True)
+class AddressStyle:
+    part: str  # "full", "street" (12 Maple Avenue) or "city" (Springfield, PA 19064)
+    has_zip: bool
+    state: str | None = None  # a PlaceStyle.state form, when recognized
+
+
+_ZIP = re.compile(r"\s*\b\d{5}(-\d{4})?$")
+
+
+def detect_address(text: str) -> AddressStyle | None:
+    lines = [" ".join(line.split()) for line in text.strip().splitlines() if line.strip()]
+    if not lines:
+        return None
+    flat = ", ".join(lines)
+    has_zip = bool(_ZIP.search(flat))
+    core = _ZIP.sub("", flat).rstrip(", ")
+    if len(lines) == 1 and "," not in core and not has_zip:
+        part = "street"
+    elif len(lines) == 1 and not core[:1].isdigit() and core.count(",") == 1:
+        part = "city"
+    else:
+        part = "full"
+    place = detect_place(", ".join(core.split(",")[-2:])) if "," in core else None
+    state = place.state if place and place.state != "none" else None
+    return AddressStyle(part=part, has_zip=has_zip, state=state)
+
+
+# --- per-category registry ------------------------------------------------
+
+@dataclass(frozen=True)
+class Style:
+    case: str | None = None
+    detail: object | None = None
+    suffix: str = ""  # trailing punctuation to re-append, e.g. ";" in "February 3, 1941;"
+
+
+DETECTORS: dict[str, Callable[[str], object | None]] = {
+    "birth_date": detect_date,
+    "date_of_birth": detect_date,
+    "birth_place": detect_place,
+    "place_of_birth": detect_place,
+    "ssn": lambda t: detect_digits(t, {9}),
+    "home_phone": lambda t: detect_digits(t, {7, 10, 11}),
+    "age": lambda t: detect_digits(t, {1, 2, 3}),
+    "marital_status": detect_marital,
+    "home_address": detect_address,
+}
+
+
+def _punctuation_variants(text: str) -> list[tuple[str, str]]:
+    """(core, suffix) splits to try, least stripped first; "." is meaningful in "N.Y." so it goes last."""
+    variants = [(text, "")]
+    core = text.rstrip(",;:")
+    suffix = text[len(core):]
+    if suffix:
+        variants.append((core, suffix))
+    if core.endswith("."):
+        variants.append((core[:-1], "." + suffix))
+    return variants
+
+
+def detect(category: str, original: str) -> Style:
+    # Normalize spacing within lines but keep line breaks; address detection needs them.
+    text = "\n".join(" ".join(line.split()) for line in original.strip().splitlines() if line.strip())
+    case = detect_case(text)
+    variants = _punctuation_variants(text)
+    detector = DETECTORS.get(category)
+    if detector:
+        for core, suffix in variants:
+            if (detail := detector(core)) is not None:
+                return Style(case=case, detail=detail, suffix=suffix)
+    core = text.rstrip(",;:")
+    return Style(case=case, suffix=text[len(core):])

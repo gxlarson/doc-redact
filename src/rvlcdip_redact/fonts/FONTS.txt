@@ -1,0 +1,23 @@
+Bundled fonts and their licenses. Each license file sits next to the fonts it covers.
+
+Font                     Files                                              License                     Source
+Liberation Serif/Sans/Mono  LiberationSerif-*.ttf, LiberationSans-*.ttf,    SIL OFL 1.1                 github.com/liberationfonts/liberation-fonts (2.1.5)
+                         LiberationMono-Regular.ttf                          Liberation-LICENSE.txt
+Gelasio                  Gelasio-Variable.ttf                               SIL OFL 1.1                 github.com/google/fonts (ofl/gelasio)
+                                                                             Gelasio-OFL.txt
+Carlito                  Carlito-Regular.ttf                                SIL OFL 1.1                 github.com/google/fonts (ofl/carlito)
+                                                                             Carlito-OFL.txt
+Inconsolata              Inconsolata-Variable.ttf                           SIL OFL 1.1                 github.com/google/fonts (ofl/inconsolata)
+                                                                             Inconsolata-OFL.txt
+DejaVu Sans / Sans Mono  DejaVuSans.ttf, DejaVuSansMono.ttf                 Bitstream Vera / public     github.com/dejavu-fonts/dejavu-fonts (2.37)
+                                                                             domain, DejaVu-LICENSE.txt
+TeX Gyre Bonum/Schola/Pagella  texgyre*-regular.otf                         GUST Font License           ctan.org/pkg/tex-gyre
+                                                                             TeXGyre-GUST-FONT-LICENSE.txt
+Courier Prime            CourierPrime-Regular.ttf, CourierPrime-Bold.ttf    SIL OFL 1.1                 quoteunquoteapps.com/courierprime
+                                                                             CourierPrime-OFL.txt
+Courier 10 Pitch         Courier10Pitch-*.pfb/.afm (Bitstream c0419bt_,     Bitstream license (keep     x.org font-bitstream-type1 (1.0.4)
+                         c0583bt_)                                           notice), Courier10Pitch-COPYING.txt
+Cutive Mono              CutiveMono-Regular.ttf                             SIL OFL 1.1                 github.com/google/fonts (ofl/cutivemono)
+                                                                             CutiveMono-OFL.txt
+Special Elite            SpecialElite-Regular.ttf                           Apache License 2.0          github.com/google/fonts (apache/specialelite)
+                                                                             SpecialElite-LICENSE.txt
