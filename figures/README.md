@@ -45,6 +45,16 @@ a real PII box, but the "before" text was never personal.
 | `train_scientific_report_48b1820b-*` | a grant form: the replacement sits on the printed rule, in the form's own hand-typed face | `render --page train_scientific_report_48b1820b --box 156,534,88,13 --category birth_date --seed 0 --scale 2` |
 | `train_memo_b86bd5c9-*` | a month and a day with the year elsewhere ("week of August 18"), inside a business memo | `render --page train_memo_b86bd5c9 --box 242,448,81,14 --category birth_date --seed 0 --scale 2` |
 | `train_presentation_a5066670-*` | a heavily degraded campaign flyer: bold typewriter matched on a dark, blotchy scan | `render --page train_presentation_a5066670 --box 647,242,109,20 --category birth_date --seed 0 --scale 2` |
+| `train_form_27556f9f-*` | **handwritten**: a date written into a records form's DATE DELIVERED box, replaced in a matched hand, dashes and all | `render --page train_form_27556f9f --box 594,804,123,34 --category birth_date --seed 0 --scale 2` |
+| `train_advertisement_909e8e03-*` | **handwritten**: a coupon expiry written in slashes, replaced on the printed rule | `render --page train_advertisement_909e8e03 --box 559,306,79,25 --category birth_date --seed 0 --scale 2` |
+
+The two handwritten ones need `find --handwritten`, and a word about why they are safe. Document
+frequency cannot vouch for handwriting — nobody's handwriting is boilerplate — so those stand-ins are
+held to a narrower rule instead: **dates only**, on institutional documents, where a handwritten date
+is when the document was delivered, stamped or expires rather than anything about a person. A
+handwritten *number* is never accepted, because it could be an account or case number that no
+annotation covers. The crop screens all still apply, and these candidates especially want an eye on
+them: of the six found, four were rejected here because the crop caught a cursive signature.
 
 Between them the matcher picks Special Elite, Cutive Mono, Courier Prime and Liberation Mono, so the
 set is not five examples of the same face. `find` reports the typeface it settled on for each

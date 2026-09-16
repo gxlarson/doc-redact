@@ -105,8 +105,15 @@ def pii_boxes(annotated: dict, url: str, size: tuple[int, int]) -> list[BBox]:
     return [a.bbox for a in doc.in_pixels(size).annotations]
 
 
-def find_candidates(fetcher, dataset, annotated, loaded, df, min_df: int):
-    """Stand-in regions per phenomenon: {phenomenon: [(url, [(bbox, category)], text)]}."""
+def find_candidates(fetcher, dataset, annotated, loaded, df, min_df: int, handwritten: bool = False):
+    """Stand-in regions per phenomenon: {phenomenon: [(url, [(bbox, category)], text)]}.
+
+    ``handwritten`` also accepts entries somebody wrote by hand. Document frequency cannot vouch for
+    those -- handwriting is never boilerplate -- so they are held to a narrower rule instead: dates
+    only, on the institutional classes, where a handwritten date is the date the document was stamped,
+    received or approved rather than anything about a person. Everything the crop shows is still
+    screened, and these especially want an eye on them before publishing.
+    """
     found = collections.defaultdict(list)
     for url, (words, size) in loaded.items():
         boxes = pii_boxes(annotated, url, size)
@@ -118,11 +125,14 @@ def find_candidates(fetcher, dataset, annotated, loaded, df, min_df: int):
                     region = geometry.extent(run)
                     if region is None or any(b.intersection_area(region) > 0 for b in boxes):
                         continue
-                    if any(w.handwritten for w in run):
-                        continue
-                    if not all(df[w.text.strip(".,:;()").lower()] >= min_df for w in run):
+                    hand = [w.handwritten for w in run]
+                    if any(hand) and not (handwritten and all(hand)):
+                        continue  # mixed runs are an OCR seam, not a field
+                    if not all(hand) and not all(df[w.text.strip(".,:;()").lower()] >= min_df for w in run):
                         continue
                     category = category_for(" ".join(w.text for w in run))
+                    if all(hand) and category != "birth_date":
+                        continue  # a handwritten number could be an identifier nobody annotated
                     if category:
                         runs.append((region, category, " ".join(" ".join(w.text for w in run).split())))
         if not runs:
@@ -143,7 +153,13 @@ def find_candidates(fetcher, dataset, annotated, loaded, df, min_df: int):
         for region, category, text in kept:
             if gray is None:
                 gray = np.asarray(fetcher.image(dataset.image_url(Document(url=url, annotations=[]))).convert("L"))
-            phenomenon = "rule under the text" if background.detect_rules(gray, region, words) else "style matched"
+            inside = geometry.words_inside(region, words)
+            if inside and all(w.handwritten for w in inside):
+                phenomenon = "handwritten entry"
+            elif background.detect_rules(gray, region, words):
+                phenomenon = "rule under the text"
+            else:
+                phenomenon = "style matched"
             found[phenomenon].append((url, [(region, category)], text))
     return found
 
@@ -270,7 +286,7 @@ def cmd_find(args) -> int:
     annotated, loaded, df = load_pages(fetcher, dataset, args.annotations, args.cache,
                                        fetch_classes=args.fetch, max_pages=args.max_pages)
     log.info("%d annotated pages available", len(loaded))
-    found = find_candidates(fetcher, dataset, annotated, loaded, df, args.min_df)
+    found = find_candidates(fetcher, dataset, annotated, loaded, df, args.min_df, args.handwritten)
     log.info("candidates: %s", {k: len(v) for k, v in found.items()})
 
     rows, skipped, unnamed = [], 0, 0
@@ -400,6 +416,8 @@ def main() -> int:
     f.add_argument("--min-context", type=int, default=60, help="skip candidates that cannot show this much")
     f.add_argument("--classes", nargs="*", help="only these RVL-CDIP classes, e.g. invoice specification")
     f.add_argument("--fetch", nargs="*", help="download these classes if they are not cached yet")
+    f.add_argument("--handwritten", action="store_true",
+                   help="also accept handwritten entries as stand-ins (dates only; see find_candidates)")
     f.add_argument("--max-pages", type=int, default=0, help="cap on pages downloaded by --fetch")
     f.add_argument("--exclude-classes", nargs="*", default=["resume", "questionnaire", "handwritten"],
                    help="classes to skip (default: the personal-record classes, whose context identifies "
