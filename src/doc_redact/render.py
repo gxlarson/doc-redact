@@ -34,6 +34,7 @@ class TextSettings:
     match_font: bool = True
     match_skew: bool = True  # tilt replacements to follow the scanned line
     match_color: bool = True  # draw in the original ink's colour; grey ink stays black
+    degrade: str = "auto"  # "auto" degrades only pages that look scanned; "always" / "never" force it
     paper_fill: bool = True  # erase with generated paper tone and specks instead of pure white
     keep_lines: bool = True  # redraw horizontal form lines that run through erased boxes
     handwriting: bool = True  # handwritten boxes get handwriting fonts with per-letter jitter
@@ -65,6 +66,7 @@ class Placement:
     handwritten: bool = False
     clip: tuple[float, float, float, float] | None = None  # ink limits when neighbors overlap this box
     ink: tuple[int, int, int] | None = None  # stroke colour sampled from the original; None means black
+    degrade: bool = True  # add scanner wear; off on a born-digital page, where it would be the giveaway
 
 
 @dataclass
@@ -80,6 +82,7 @@ class Page:
     addresses: dict[Annotation, addresses.FakeAddress] = field(default_factory=dict)  # shared address components
     shared_values: dict[Annotation, object] = field(default_factory=dict)  # repeated SSNs, phones, dates, ...
     family: fakedata.Family | None = None  # the document's marital status and children, if it has marital boxes
+    scanned: bool = True  # whether this page carries scanner wear, so replacements should too
 
 
 def document_handwriting_face(
@@ -331,6 +334,7 @@ def plan_text(
     return Placement(
         text=text, font=font_spec, font_size=size, xy=(x, y), spacing=spacing, original=original, stroke=stroke,
         angle_deg=angle, baseline_y=baseline_y, handwritten=handwritten, clip=limits, ink=ink,
+        degrade=settings.degrade == "always" or (settings.degrade == "auto" and page.scanned),
     )
 
 
@@ -349,7 +353,7 @@ def draw_plan(image: Image.Image, plan: Placement) -> Image.Image:
         keep[max(0, top):max(0, bottom + 1), max(0, left):max(0, right + 1)] = True
         pixels[~keep] = 255
         layer = Image.fromarray(pixels)
-    return augment.overlay(image, augment.degrade(layer))
+    return augment.overlay(image, augment.degrade(layer) if plan.degrade else layer)
 
 
 def pseudonymize(image: Image.Image, annotation: Annotation, page: Page, settings: TextSettings) -> Image.Image:

@@ -11,7 +11,7 @@ from typing import Iterator
 import numpy as np
 from PIL import Image
 
-from doc_redact import addresses, baseline, checks, geometry, ocr, people, render, typeface, values
+from doc_redact import addresses, augment, baseline, checks, geometry, ocr, people, render, typeface, values
 from doc_redact.annotations import Document
 from doc_redact.datasets import Dataset
 from doc_redact import fakedata
@@ -48,10 +48,17 @@ def redact_document(image: Image.Image, doc: Document, page_ocr: dict | None, op
         print_matcher = typeface.TypefaceMatcher(gray, typeface.candidates(options.text.system_fonts))
         if options.text.handwriting and any(w.handwritten for w in words):
             handwriting_matcher = typeface.TypefaceMatcher(gray, typeface.candidates(handwriting=True))
+    # Scanner wear is matched like everything else: a crisp born-digital page gets a crisp
+    # replacement, because there the low-ink dropouts would be the only worn thing on the page.
+    scanned = options.text.degrade == "always" or (
+        options.text.degrade == "auto" and augment.looks_scanned(gray))
     page = render.Page(
         words=words, gray=gray, typefaces=print_matcher, handwriting_typefaces=handwriting_matcher,
-        skew=baseline.page_skew(gray, words), rgb=np.asarray(image.convert("RGB")),
+        skew=baseline.page_skew(gray, words), rgb=np.asarray(image.convert("RGB")), scanned=scanned,
     )
+    if options.text.degrade == "auto":
+        log.debug("%s: edge softness %.2f -> %s", doc.stem, augment.edge_softness(gray) or float("nan"),
+                  "degrading replacements" if scanned else "page is born-digital, not degrading")
     page.identities = people.link(doc.annotations, words)
     page.addresses = addresses.link(doc.annotations, words)
     if page.addresses:

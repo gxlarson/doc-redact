@@ -63,6 +63,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="draw replacements in the original ink's colour (grey ink stays black)",
     )
     r.add_argument(
+        "--degrade", choices=["auto", "always", "never"], default="auto",
+        help="add scanner wear (low-ink dropouts) to replacements; 'auto' (default) does so only on pages "
+             "whose own text is worn, so a born-digital page keeps crisp replacements",
+    )
+    r.add_argument(
         "--paper-fill", action=argparse.BooleanOptionalAction, default=True,
         help="erase boxes with generated paper tone and specks sampled around them, instead of pure white",
     )
@@ -153,6 +158,7 @@ def cmd_redact(args: argparse.Namespace) -> int:
             match_font=args.match_font and args.font is None,
             match_skew=args.match_skew,
             match_color=args.match_color,
+            degrade=args.degrade,
             handwriting=args.handwriting,
             paper_fill=args.paper_fill,
             keep_lines=args.keep_lines,

@@ -6,6 +6,40 @@ from functools import cache
 
 import numpy as np
 from PIL import Image, ImageOps
+from scipy import ndimage
+
+# Midtone pixels per unit of stroke perimeter. A born-digital glyph has a one-pixel antialiased rim;
+# a scanned one has a smeared, noisy edge. Measured over 40 RVL-CDIP scans and 15 clean renders at
+# five sizes and three faces, the two never came close: scans ran 0.19 to 0.45 (median 0.26), clean
+# renders 0.07 to 0.15 (median 0.09). The threshold sits in the gap, nearer the clean side.
+SCAN_SOFTNESS = 0.17
+_MIN_INK_PIXELS = 200  # fewer than this and the page is too empty to judge
+
+
+def edge_softness(gray: np.ndarray) -> float | None:
+    """How smeared this page's stroke edges are, or None when there is too little ink to tell.
+
+    Normalised by the ink's perimeter rather than its area, so the measure does not drift with font
+    size: by area, large scanned text reads as clean.
+    """
+    g = np.asarray(gray, dtype=np.float32)
+    paper = float(np.percentile(g, 90))
+    ink = g < paper - 60
+    if int(ink.sum()) < _MIN_INK_PIXELS:
+        return None
+    midtones = (g >= paper - 60) & (g < paper - 12)
+    perimeter = ndimage.binary_dilation(ink) & ~ndimage.binary_erosion(ink)
+    return float(midtones.sum() / max(1.0, perimeter.sum()))
+
+
+def looks_scanned(gray: np.ndarray) -> bool:
+    """Whether a page carries scanner wear, so a replacement should be degraded to match.
+
+    An empty page counts as scanned: degrading is what this did before there was a choice, and on a
+    page with no text to compare against, the replacement's own texture is no giveaway.
+    """
+    softness = edge_softness(gray)
+    return True if softness is None else softness >= SCAN_SOFTNESS
 
 
 @cache

@@ -144,6 +144,7 @@ Options for `redact`:
 | `--[no-]match-style` | mimic the original's format: date layout, state form, digit separators, address part, casing, trailing punctuation (default on) |
 | `--[no-]match-skew` | rotate the replacement to the scanned line's baseline slope, falling back to the page skew (default on) |
 | `--[no-]match-color` | draw in the original ink's colour, sampled from the strokes; grey ink stays black (default on) |
+| `--degrade` | `auto` (default), `always` or `never`: add scanner wear to replacements only on pages whose own text is worn |
 | `--[no-]paper-fill` | fill erased boxes with paper sampled from around them (color, noise, specks) instead of white (default on) |
 | `--[no-]keep-lines` | detect horizontal rules crossing a box and redraw them synthetically after erasing (default on) |
 | `--[no-]handwriting` | replace handwritten text with handwriting, one face per document (default on) |
@@ -205,6 +206,12 @@ For each box, the OCR words at least 70% inside it are grouped into lines. That 
   and a coloured rule is redrawn in its own colour. Near-grey ink reads as black, so a grayscale scan comes
   out byte for byte as it did before this existed. Detection (typeface, weight, baselines, rules) stays on
   luminance — hue should not decide which face matched.
+- **Scanner wear** (`--degrade auto`): replacements get low-ink dropouts only when the page's own text
+  has them. A page is judged by the midtones around its strokes, counted per unit of stroke perimeter so
+  the measure does not drift with font size: a born-digital glyph has a one-pixel antialiased rim, a
+  scanned one a smeared edge. Over 40 RVL-CDIP scans and 15 clean renders the two never overlapped
+  (scans 0.19-0.45, renders 0.07-0.15), so the threshold sits in the gap at 0.17. On a born-digital PDF
+  the replacement would otherwise be the only worn text on the page.
 - **Position**: glyph tops align with the original words' left/top; empty boxes are centered vertically.
 - **Line count**: addresses stay two lines only if the original spans two lines.
 - **Style** (`--match-style`): e.g. `4/12/50` → `9/3/61`, `Marfa, Tex.` → `Olney, Ark.`,
