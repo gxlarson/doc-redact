@@ -43,6 +43,64 @@ doc-redact parse-labelstudio redactions_FUNSD.json redactions_FUNSD_parsed.json 
 
 `python -m doc_redact ...` works without installing (with `src` on `PYTHONPATH`).
 
+## Running a whole corpus
+
+Defaults are what you want for a full run: pseudonymized text, matched typeface, size,
+weight, skew and format, paper fill and preserved rules. Only `-o`, `--seed` and
+`--cache` need choosing.
+
+```sh
+doc-redact redact rvlcdip_pii_annotated.json \
+    --dataset rvlcdip -o output/rvlcdip_pseudo --seed 0 --cache .cache
+```
+
+Cost is dominated by typeface matching, and it is charged **per box**, not per page:
+about 1.6 s per box with `--match-font`, 0.3 s without (measured on 1080p-ish RVL-CDIP
+scans; handwritten pages cost roughly double, since a second matcher runs over the
+handwriting faces). For the 15,956 annotated RVL-CDIP pages (39,435 boxes) that is
+roughly **19 core-hours**, or about 4.5 with `--no-match-font`.
+
+Downloads are ~780 KB per page (image plus Textract JSON), so a full RVL-CDIP run pulls
+about 12 GB. With `--cache` it is pulled once; pre-fetching before a parallel run keeps
+the workers from hammering the server at once:
+
+```sh
+doc-redact check rvlcdip_pii_annotated.json --dataset rvlcdip --cache .cache >/dev/null
+```
+
+### Across cores
+
+Pages are independent, so split the annotation file and run one process per core.
+Output file names come from each document's URL, so every shard can write to the same
+`-o` directory.
+
+```sh
+# Split into one file per core
+python - <<'PY'
+import json, math, pathlib
+docs = json.load(open("rvlcdip_pii_annotated.json"))
+n = 12
+size = math.ceil(len(docs) / n)
+pathlib.Path("shards").mkdir(exist_ok=True)
+for i in range(n):
+    json.dump(docs[i * size:(i + 1) * size], open(f"shards/{i:02d}.json", "w"))
+PY
+
+# One process per shard, each with its own seed
+seq -w 0 11 | xargs -P 12 -I{} \
+    doc-redact redact shards/{}.json --dataset rvlcdip \
+        -o output/rvlcdip_pseudo --cache .cache --seed {}
+```
+
+Give every shard a **different `--seed`**: equal seeds make different pages share the
+same generated people, addresses and numbers. Scaling is close to linear (the work is
+CPU-bound in numpy/scipy), so 12 cores brings the run above to roughly 1.5 h and 32 to
+about 35 min. A shared `--cache` directory is safe to read from concurrently; pre-fetch
+it first as above rather than having 12 workers download the same corpus.
+
+Failures are logged per page and skipped, and each process exits non-zero if any of its
+pages failed, so check the exit codes rather than assuming a silent run was complete.
+
 Options for `redact`:
 
 | Option | Meaning |
@@ -57,6 +115,10 @@ Options for `redact`:
 | `--[no-]fit-width` | pick the candidate closest to the original text width, and shrink if it would overflow the box (default on) |
 | `--[no-]match-weight` | thicken strokes to match the scanned text under the box (default on) |
 | `--[no-]match-style` | mimic the original's format: date layout, state form, digit separators, address part, casing, trailing punctuation (default on) |
+| `--[no-]match-skew` | rotate the replacement to the scanned line's baseline slope, falling back to the page skew (default on) |
+| `--[no-]paper-fill` | fill erased boxes with paper sampled from around them (color, noise, specks) instead of white (default on) |
+| `--[no-]keep-lines` | detect horizontal rules crossing a box and redraw them synthetically after erasing (default on) |
+| `--[no-]handwriting` | replace handwritten text with handwriting, one face per document (default on) |
 | `--only ID` | process only these documents (repeatable) |
 | `--text CATEGORY=TEXT` | fixed replacement text for a category |
 | `--seed N` | reproducible fake data and augmentation |
@@ -84,9 +146,16 @@ The fallback font and size are used only when a box has no measurable OCR words 
                    "bbox": {"left": 1273, "top": 327, "width": 121, "height": 31}}]}]
 ```
 
-Supported categories: `age`, `birth_date`/`date_of_birth`, `birth_place`/`place_of_birth`,
-`citizenship_nationality`, `home_address`, `home_phone`, `marital_status`, `religion`, `ssn`.
-Other categories (e.g. `sex_gender`, `other`) are whited out and logged.
+Categories that get replacement text (aliases after the slash): `age`,
+`birth_date`/`date_of_birth`, `birth_place`/`place_of_birth`,
+`citizenship_nationality`/`citizenship`, `city`, `home_address`/`address`,
+`home_phone`/`phone`, `marital_status`, `name`, `religion`/`religious_affiliation`,
+`ssn`/`ssn_like`, `state`, `street`, `zip`. Together they cover 96% of the annotated
+RVL-CDIP boxes.
+
+Any other category (`sex_gender`, `signature`, `health_status`, `other`, `other_id`) is
+erased and logged — the region is filled with generated paper and any rule redrawn, but
+nothing is written back.
 
 ## How replacement text is placed
 
