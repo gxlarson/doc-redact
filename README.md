@@ -215,6 +215,33 @@ For each box, the OCR words at least 70% inside it are grouped into lines. That 
 `check` flags: `no_ocr_words`, `looks_like_date`, `looks_like_ssn`, `no_digits`, `only_digits`
 (likely label problems) and `style_not_detected` (informational; a random format will be used).
 
+## Known limitations
+
+**Light text on a dark background is not handled.** Everything here assumes ink is darker than paper:
+`sample_ink` looks for pixels darker than the page, `layout.draw_text` composites with
+`ImageChops.darker`, `augment.overlay` copies every non-white pixel, and the measurements
+(`detect_rules`, `weight`, `baseline`, the typeface masks) all threshold for dark ink. Paper sampling
+is the exception and already copes, reading `(20, 20, 20)` off a black page.
+
+Given a white-on-black or cream-on-navy box the erase is correct -- the box is refilled in the right
+dark tone -- but the replacement is drawn in the wrong polarity and comes out as dark glyphs ringed
+with bright halos. `sample_ink` also mistakes the dark background for the ink and returns it.
+
+The cheap fix, when it is wanted: detect polarity per box by comparing the sampled ink's luminance
+with the paper's, and for a light-on-dark box invert the crop, run the existing pipeline unchanged,
+and invert the result back. That reuses typeface matching, weight, baselines and rule detection as
+they are rather than teaching six modules about polarity. The genuinely new parts are a
+polarity-aware `sample_ink` (the pixels furthest from paper, in either direction) and compositing by
+coverage instead of `darker`.
+
+This has not mattered so far: RVL-CDIP is grayscale and black-on-white throughout. It would matter
+for slides, advertisements and forms with inverted panels.
+
+Also still open: `sex_gender`, `signature`, `health_status` and `other` boxes are erased but not
+replaced (3.8% of annotated boxes; see the category list above), and on a preprinted form whose date
+field reads `April 10 ___ 19 87`, a box drawn around the whole field spans the printed `19`, so the
+replacement can come out as something no date would be written as.
+
 ## Fonts
 
 19 open-license fonts are bundled (5.2 MB) so matching works the same on every machine:
