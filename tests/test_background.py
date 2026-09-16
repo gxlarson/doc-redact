@@ -203,3 +203,27 @@ def test_lines_can_be_turned_off():
     out = rgb.copy()
     assert background.blank(out, rgb, gray, BOX, np.random.default_rng(1), keep_lines=False) == []
     assert _dark_inside(out, BOX).mean() < 0.01
+
+
+def test_a_redrawn_rule_keeps_the_original_line_dark_and_in_place():
+    """A scanned hairline is one dark row with light antialiasing either side. Counting every row
+    under the threshold made it three rows thick, and the median of their values made it mid-grey,
+    so the redrawn line came out as a grey band sitting half a pixel high."""
+    rgb = np.full((200, 600, 3), 250, np.uint8)
+    row = 120
+    rgb[row] = 8               # the line's core
+    rgb[row - 1] = 205         # antialiasing above
+    rgb[row + 1] = 160         # and below
+    gray = np.asarray(Image.fromarray(rgb).convert("L"))
+    box = BBox(left=100, top=row - 12, width=300, height=24)
+
+    [rule] = background.detect_rules(gray, box)
+    assert rule.gray < 30, "the redrawn line should carry the core's darkness, not a blend with its edges"
+    assert rule.thickness < 2.0, "one dark row, not the full extent of everything under the threshold"
+    assert abs(rule.y_at(np.array([250.0]))[0] - row) < 0.5
+
+    canvas = rgb.copy()
+    background.blank(canvas, rgb, gray, box, np.random.default_rng(0), paper_fill=False, keep_lines=True)
+    drawn = canvas[:, int(box.left) + 10]
+    assert drawn[row].min() < 40  # the line is back, and dark
+    assert drawn[row - 2].min() > 200 and drawn[row + 2].min() > 200  # without a grey halo

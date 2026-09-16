@@ -208,12 +208,34 @@ def detect_rules(gray: np.ndarray, bbox: BBox, words: list[Word] | None = None) 
         left, right = xs.min() + x0, xs.max() + x0 + 1
         if right - left < length:
             continue
+        # Measure the line the way ink behaves, not the way the threshold cuts it. A scanned hairline
+        # is one dark row with light antialiasing either side; counting every row under the threshold
+        # made it three rows thick, and taking the median of their values made it mid-grey. Redrawn
+        # that way it came out as a wide grey band sitting half a pixel high. So each column gives a
+        # darkness-weighted centre, its ink mass, and its darkest value; the line is then redrawn with
+        # the core's darkness and whatever thickness carries the same mass.
         columns = np.unique(xs)
-        centers = np.array([ys[xs == c].mean() for c in columns]) + y0
-        widths = np.array([(xs == c).sum() for c in columns])
+        values = region[ys, xs].astype(np.float64)
+        weights = np.clip(background - values, 0.0, None)
+        centers, masses, cores, widths = [], [], [], []
+        for c in columns:
+            column = xs == c
+            weight = weights[column]
+            total = float(weight.sum())
+            if total <= 0:
+                continue
+            centers.append(float(((ys[column] + y0) * weight).sum() / total))
+            masses.append(total)
+            cores.append(float(values[column].min()))
+            widths.append(int(column.sum()))
+        if len(centers) < 2:
+            continue
+        columns = columns[:len(centers)] if len(centers) != len(columns) else columns
+        centers = np.array(centers)
         slope, intercept = np.polyfit(columns + x0, centers, 1)
-        thickness = float(np.median(widths))
-        if abs(slope) > LINE_MAX_SLOPE or thickness > max_thickness:
+        core = float(np.median(cores))
+        thickness = float(np.median(masses)) / max(1.0, background - core)
+        if abs(slope) > LINE_MAX_SLOPE or float(np.median(widths)) > max_thickness:
             continue
         extends_past_box = left <= bbox.left - LINE_OVERHANG or right >= bbox.right + LINE_OVERHANG
         if not extends_past_box:
@@ -226,9 +248,8 @@ def detect_rules(gray: np.ndarray, bbox: BBox, words: list[Word] | None = None) 
             continue
         if not _looks_like_a_ruled_line(gray, threshold, left, right, intercept, slope, thickness, words or []):
             continue
-        values = region[ys, xs]
-        rules.append(Rule(x0=mid, y0=float(y_mid), slope=float(slope), thickness=thickness,
-                          x_start=float(left), x_end=float(right), gray=float(np.median(values))))
+        rules.append(Rule(x0=mid, y0=float(y_mid), slope=float(slope), thickness=max(0.6, thickness),
+                          x_start=float(left), x_end=float(right), gray=core))
     return rules
 
 
