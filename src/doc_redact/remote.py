@@ -5,7 +5,10 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import posixpath
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -14,6 +17,36 @@ from urllib.parse import urlparse
 from PIL import Image
 
 TIMEOUT_SECONDS = 60
+RETRIES = 4
+BACKOFF_SECONDS = 2.0
+
+log = logging.getLogger(__name__)
+
+
+def _is_transient(error: Exception) -> bool:
+    """A dropped connection or a 5xx is worth retrying; a 404 never is."""
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code >= 500
+    return True
+
+
+def _urlopen_with_retries(url: str) -> bytes:
+    """Fetch ``url``, retrying transient failures with exponential backoff.
+
+    Parallel shards hit the hosting server hard enough that it occasionally drops a
+    connection; without this, one drop permanently skips a page mid-run.
+    """
+    for attempt in range(1, RETRIES + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=TIMEOUT_SECONDS) as response:
+                return response.read()
+        except Exception as error:  # noqa: BLE001 - re-raised below when not retryable
+            if attempt == RETRIES or not _is_transient(error):
+                raise
+            delay = BACKOFF_SECONDS * 2 ** (attempt - 1)
+            log.warning("fetch %s failed (%s); retrying in %.0fs [%d/%d]", url, error, delay, attempt, RETRIES)
+            time.sleep(delay)
+    raise AssertionError("unreachable")
 
 
 class Fetcher:
@@ -33,8 +66,7 @@ class Fetcher:
         path = self._cache_path(url)
         if path is not None and path.is_file():
             return path.read_bytes()
-        with urllib.request.urlopen(url, timeout=TIMEOUT_SECONDS) as response:
-            data = response.read()
+        data = _urlopen_with_retries(url)
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
