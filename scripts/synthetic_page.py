@@ -26,15 +26,25 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from doc_redact import augment, background, fakedata, handwriting, layout, pipeline, render  # noqa: E402
+from doc_redact import augment, background, fakedata, geometry, handwriting, layout, ocr, pipeline, render  # noqa: E402
 from doc_redact import style as st  # noqa: E402
 from doc_redact.annotations import Annotation, BBox, Document  # noqa: E402
 
 log = logging.getLogger("synthetic_page")
 
 WIDTH, HEIGHT = 900, 820
-LABEL_FONT, VALUE_FONT = "LiberationSans-Regular.ttf", "CourierPrime-Regular.ttf"
-HAND_FONT, HAND_SIZE = "Caveat-Variable.ttf", 30
+HAND_SIZE = 30
+
+# Each variant is a different office: what the form was printed with, what it was filled in with, and
+# whose hand signed it. The pipeline has to match whatever it is handed, so the figures should differ.
+VARIANTS = {
+    "typewriter": dict(label="LiberationSans-Regular.ttf", value="CourierPrime-Regular.ttf",
+                       hand="Caveat-Variable.ttf", title="EMPLOYEE RECORD"),
+    "serif": dict(label="texgyreschola-regular.otf", value="LiberationSerif-Regular.ttf",
+                  hand="HomemadeApple-Regular.ttf", title="PERSONNEL FILE"),
+    "elite": dict(label="Carlito-Regular.ttf", value="SpecialElite-Regular.ttf",
+                  hand="ArchitectsDaughter-Regular.ttf", title="APPLICATION FOR EMPLOYMENT"),
+}
 
 
 @dataclass
@@ -75,17 +85,36 @@ def compose(seed: int) -> tuple[list[Field], str]:
     return fields, person
 
 
-def draw_page(fields: list[Field], seed: int) -> Image.Image:
+def draw_hand_word(page: Image.Image, xy: tuple[float, float], word: str, font: str, size: int) -> BBox:
+    """Write one handwritten word onto ``page`` and return the box its ink actually occupies.
+
+    handwriting.draw jitters each letter's size and advance, so it runs wider than the font metrics
+    predict. Trusting the metrics here gave boxes too narrow for the words beneath them, and the
+    redaction then erased only part of the original -- leaving its tail behind under the replacement.
+    """
+    layer = Image.new("RGB", page.size, "white")
+    handwriting.draw(layer, xy, word, font, size)
+    ink = np.asarray(layer.convert("L")) < 250
+    if not ink.any():
+        return BBox(xy[0], xy[1], layout.text_width(layout.load_font(font, size), word), size)
+    rows, cols = np.nonzero(ink)
+    page.paste(layer, (0, 0), Image.fromarray((ink * 255).astype(np.uint8), mode="L"))
+    left, top = float(cols.min()), float(rows.min())
+    return BBox(left, top, float(cols.max()) - left + 1, float(rows.max()) - top + 1)
+
+
+def draw_page(fields: list[Field], seed: int, variant: dict) -> Image.Image:
     """Render the form, then degrade it so it looks like a scan rather than a screenshot."""
     rng = np.random.default_rng(seed)
     paper = background.generate_paper(background.Paper(color=(246, 244, 238), noise_std=3.2,
                                                        speck_density=0.00035, speck_gray=90.0), HEIGHT, WIDTH, rng)
     page = Image.fromarray(paper)
     draw = ImageDraw.Draw(page)
-    label_font = layout.load_font(LABEL_FONT, 15)
-    value_font = layout.load_font(VALUE_FONT, 19)
+    label_font = layout.load_font(variant["label"], 15)
+    value_font = layout.load_font(variant["value"], 19)
+    hand_font = variant["hand"]
 
-    draw.text((60, 52), "EMPLOYEE RECORD", font=layout.load_font(LABEL_FONT, 26), fill=(20, 20, 20))
+    draw.text((60, 52), variant["title"], font=layout.load_font(variant["label"], 26), fill=(20, 20, 20))
     draw.line([(60, 92), (WIDTH - 60, 92)], fill=(40, 40, 40), width=2)
 
     y = 140
@@ -93,19 +122,19 @@ def draw_page(fields: list[Field], seed: int) -> Image.Image:
         draw.text((60, y), f.label, font=label_font, fill=(35, 35, 35))
         x = 330
         baseline = y + 20
+        cursor = x
         if f.handwritten:
-            handwriting.draw(page, (x, y - 4), f.value, HAND_FONT, HAND_SIZE)
-            f.box = BBox(x, y - 4, layout.text_width(layout.load_font(HAND_FONT, HAND_SIZE), f.value), 32)
+            for word in f.value.split():
+                box = draw_hand_word(page, (cursor, y - 4), word, hand_font, HAND_SIZE)
+                f.words.append((word, box))
+                cursor = box.right + 0.35 * HAND_SIZE  # a written space
+            f.box = geometry.extent([ocr.Word(w, b) for w, b in f.words])
         else:
             draw.text((x, y), f.value, font=value_font, fill=(25, 25, 25))
             f.box = BBox(x, y - 2, layout.text_width(value_font, f.value), 26)
-        # Word boxes, for the OCR we hand the pipeline.
-        cursor = x
-        for word in f.value.split():
-            font = layout.load_font(HAND_FONT, HAND_SIZE) if f.handwritten else value_font
-            w = layout.text_width(font, word + " ")
-            f.words.append((word, BBox(cursor, f.box.top, layout.text_width(font, word), f.box.height)))
-            cursor += w
+            for word in f.value.split():
+                f.words.append((word, BBox(cursor, f.box.top, layout.text_width(value_font, word), f.box.height)))
+                cursor += layout.text_width(value_font, word + " ")
         draw.line([(325, y + 27), (WIDTH - 80, y + 27)], fill=(60, 60, 60), width=1)  # field rule
         y += 52 if not f.handwritten else 58
 
@@ -128,28 +157,21 @@ def ocr_json(fields: list[Field]) -> dict:
     return {"Blocks": blocks}
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("-o", "--out", type=Path, required=True)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--crop-scale", type=int, default=2)
-    args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-
-    fields, person = compose(args.seed)
-    page = draw_page(fields, args.seed)
-    doc = Document(url="https://example.invalid/synthetic/employee_record.png",
+def build(out: Path, name: str, variant: dict, seed: int, crop_scale: int) -> None:
+    """One synthetic page and its redaction, written as <name>_before.png / _after.png."""
+    fields, _ = compose(seed)
+    page = draw_page(fields, seed, variant)
+    doc = Document(url=f"https://example.invalid/synthetic/{name}.png",
                    annotations=[Annotation(f.category, f.box) for f in fields])
-    options = pipeline.Options(pipeline.Mode.PSEUDO,
-                               render.TextSettings(font=VALUE_FONT, font_size=19))
-    fakedata.seed(args.seed + 1)  # different values than the page was built with
-    np.random.seed(args.seed + 1)
+    options = pipeline.Options(pipeline.Mode.PSEUDO, render.TextSettings(font=variant["value"], font_size=19))
+    fakedata.seed(seed + 1)  # different values than the page was built with
+    np.random.seed(seed + 1)
     redacted = pipeline.redact_document(page, doc, ocr_json(fields), options)
 
-    args.out.mkdir(parents=True, exist_ok=True)
-    page.save(args.out / "synthetic_before.png")
-    redacted.save(args.out / "synthetic_after.png")
-    (args.out / "synthetic_annotations.json").write_text(
+    out.mkdir(parents=True, exist_ok=True)
+    page.save(out / f"{name}_before.png")
+    redacted.save(out / f"{name}_after.png")
+    (out / f"{name}_annotations.json").write_text(
         json.dumps([{"url": doc.url, "annotations": [
             {"category": a.category, "bbox": {"left": a.bbox.left, "top": a.bbox.top,
                                               "width": a.bbox.width, "height": a.bbox.height}}
@@ -159,12 +181,27 @@ def main() -> int:
     hand = [f.box for f in fields if f.handwritten]
     window = (int(min(b.left for b in hand)) - 280, int(min(b.top for b in hand)) - 16,
               int(max(b.right for b in hand)) + 60, int(max(b.bottom for b in hand)) + 16)
-    for name, im in (("before", page), ("after", redacted)):
+    for label, im in (("before", page), ("after", redacted)):
         crop = im.crop(window)
-        crop = crop.resize((crop.width * args.crop_scale, crop.height * args.crop_scale), Image.LANCZOS)
-        crop.save(args.out / f"synthetic_handwriting_{name}.png")
-    log.info("wrote %s (page %dx%d, %d fields, seed %d)", args.out, page.width, page.height, len(fields), args.seed)
-    log.info("the page's own values are generated; nothing on it belongs to a person")
+        crop.resize((crop.width * crop_scale, crop.height * crop_scale), Image.LANCZOS).save(
+            out / f"{name}_handwriting_{label}.png")
+    log.info("wrote %s_*.png (%s printed in %s, signed in %s, seed %d)",
+             name, variant["title"].lower(), variant["value"], variant["hand"], seed)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("-o", "--out", type=Path, required=True)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--crop-scale", type=int, default=2)
+    parser.add_argument("--variants", nargs="*", choices=sorted(VARIANTS), default=sorted(VARIANTS),
+                        help="which office to imitate (default: all of them)")
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    for i, name in enumerate(args.variants):
+        build(args.out, f"synthetic_{name}", VARIANTS[name], args.seed + 10 * i, args.crop_scale)
+    log.info("every value on these pages is generated; nothing on them belongs to a person")
     return 0
 
 

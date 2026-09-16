@@ -44,6 +44,16 @@ a real PII box, but the "before" text was never personal.
 | `train_letter_99afcf16-*` | a date replaced in place under a full letterhead | `render --page train_letter_99afcf16 --box 381,196,100,14 --category birth_date --seed 0 --scale 2 --pad 340,190,340,45` |
 | `train_scientific_report_48b1820b-*` | a grant form: the replacement sits on the printed rule, in the form's own hand-typed face | `render --page train_scientific_report_48b1820b --box 156,534,88,13 --category birth_date --seed 0 --scale 2` |
 | `train_memo_b86bd5c9-*` | a month and a day with the year elsewhere ("week of August 18"), inside a business memo | `render --page train_memo_b86bd5c9 --box 242,448,81,14 --category birth_date --seed 0 --scale 2` |
+| `train_presentation_a5066670-*` | a heavily degraded campaign flyer: bold typewriter matched on a dark, blotchy scan | `render --page train_presentation_a5066670 --box 647,242,109,20 --category birth_date --seed 0 --scale 2` |
+
+Between them the matcher picks Special Elite, Cutive Mono, Courier Prime and Liberation Mono, so the
+set is not five examples of the same face. `find` reports the typeface it settled on for each
+candidate (and `render` for each figure), which is how to pick a varied set rather than a uniform one.
+
+One candidate was rendered and dropped for being a *poor* match rather than an unsafe one: an FDA
+letterhead whose stand-in box held just "June 2," — two short words, too few glyphs for the matcher,
+which answered with a serif against the original's bold sans. It is a fair picture of what happens on
+a very short box, but it misrepresents typical output, so it is not in the set.
 
 The last two came from classes the corpus barely annotates — scientific reports, memos, specifications —
 which is where the institutional documents live. `--fetch <classes>` downloads a class that is not in
@@ -71,15 +81,19 @@ document-frequency test) or a filled-in name or address field. So `synthetic/` i
 nothing: every value on it comes from the generators, and it is degraded to look scanned. It carries
 its own Textract-style OCR, so the real pipeline runs on it unchanged.
 
-| file | shows |
-|---|---|
-| `synthetic/synthetic_before.png` | the invented "original" page |
-| `synthetic/synthetic_after.png` | the same page redacted |
-| `synthetic/synthetic_handwriting_{before,after}.png` | the handwritten block: handwriting replaced by handwriting, one face per document |
-| `synthetic/synthetic_annotations.json` | the boxes, for rerunning |
+Three variants, each a different office: what the form was printed with, what it was filled in with,
+and whose hand signed it. Every one is a `*_before.png` / `*_after.png` pair, plus a crop of the
+handwritten block and the annotations for rerunning.
+
+| variant | printed in | filled in with | signed in |
+|---|---|---|---|
+| `synthetic_typewriter_*` | Liberation Sans | Courier Prime | Caveat |
+| `synthetic_serif_*` | TeX Gyre Schola | Liberation Serif | Homemade Apple |
+| `synthetic_elite_*` | Carlito | Special Elite | Architects Daughter |
 
 ```sh
-python scripts/synthetic_page.py -o figures/synthetic --seed 0
+python scripts/synthetic_page.py -o figures/synthetic --seed 0            # all three
+python scripts/synthetic_page.py -o figures/synthetic --variants serif    # just one
 ```
 
 Worth pointing out in a caption: the employee's surname is shared by the handwritten spouse field

@@ -149,14 +149,32 @@ def find_candidates(fetcher, dataset, annotated, loaded, df, min_df: int):
 
 
 def redact_standin(fetcher, dataset, url: str, regions, seed: int):
-    """The page with only the stand-in regions replaced (every real PII box is left alone)."""
+    """The page with only the stand-in regions replaced (every real PII box is left alone).
+
+    Also reports the typeface the matcher settled on, so a figure set can be chosen to show more than
+    one of them rather than three examples of the same Courier.
+    """
     fakedata.seed(seed)
     np.random.seed(seed)
     doc = Document(url=url, annotations=[Annotation(category, box) for box, category in regions])
     image = fetcher.image(dataset.image_url(doc))
     page_ocr = fetcher.json(dataset.ocr_url(doc))
     options = pipeline.Options(pipeline.Mode.PSEUDO, render.TextSettings(font=dataset.font, font_size=dataset.font_size))
-    return image, pipeline.redact_document(image, doc, page_ocr, options)
+
+    fonts: list[str] = []
+    original_plan = render.plan_text
+
+    def recording_plan(*a, **kw):
+        plan = original_plan(*a, **kw)
+        fonts.append(Path(plan.font).stem)
+        return plan
+
+    render.plan_text = recording_plan
+    try:
+        redacted = pipeline.redact_document(image, doc, page_ocr, options)
+    finally:
+        render.plan_text = original_plan
+    return image, redacted, fonts
 
 
 # Content that identifies a person without naming them, or that is sensitive on its own. A career
@@ -265,7 +283,7 @@ def cmd_find(args) -> int:
                 continue
             if any(f"_{c}_" in url for c in args.exclude_classes or []):
                 continue
-            image, redacted = redact_standin(fetcher, dataset, url, regions, args.seed)
+            image, redacted, fonts = redact_standin(fetcher, dataset, url, regions, args.seed)
             pii = pii_boxes(annotated, url, image.size)
             margin = safe_margin(regions, pii, image.size, args.context)
             if margin < args.min_context:
@@ -278,7 +296,8 @@ def cmd_find(args) -> int:
                 log.debug("skipping %s: crop shows %s", url.rsplit("/", 1)[-1][:24], sorted(set(evidence)))
                 continue
             scale = max(1, min(4, int(340 / max(1, window.width))))
-            rows.append((phenomenon, regions[0][1], url, crop_pair(image, redacted, window, scale), regions, margin))
+            rows.append((phenomenon, regions[0][1], url, crop_pair(image, redacted, window, scale), regions,
+                         margin, fonts[0] if fonts else "?"))
             shown += 1
     if skipped:
         log.info("dropped %d candidate(s): real PII sits within %dpx of the stand-in", skipped, args.min_context)
@@ -297,9 +316,9 @@ def cmd_find(args) -> int:
     draw.text((255 + rows[0][3][0].width + pad, 8), "after (redacted as if it were PII)", fill=(0, 0, 0))
     y = 26
     index = []
-    for phenomenon, category, url, tiles, regions, margin in rows:
+    for phenomenon, category, url, tiles, regions, margin, font in rows:
         draw.text((6, y + 4), phenomenon[:36], fill=(0, 0, 0))
-        draw.text((6, y + 18), f"as {category}, {margin}px context", fill=(60, 60, 60))
+        draw.text((6, y + 18), f"as {category}, {margin}px, {font[:22]}", fill=(60, 60, 60))
         draw.text((6, y + 32), url.rsplit("/", 1)[-1][:26], fill=(90, 90, 90))
         x = 250
         for tile in tiles:
@@ -312,6 +331,7 @@ def cmd_find(args) -> int:
             "page": url.rsplit("/", 1)[-1].rsplit(".", 1)[0],
             "boxes": [f"{b.left:.0f},{b.top:.0f},{b.width:.0f},{b.height:.0f}" for b, _ in regions],
             "margin": margin,  # the widest context this page allows without touching real PII
+            "font": font,  # the typeface the matcher chose for this box
         })
     args.out.mkdir(parents=True, exist_ok=True)
     sheet.save(args.out / "candidates.png")
@@ -329,7 +349,7 @@ def cmd_render(args) -> int:
         log.error("no annotated page matches %r", args.page)
         return 1
     regions = [(BBox(*(float(v) for v in spec.split(","))), args.category) for spec in args.box]
-    image, redacted = redact_standin(fetcher, dataset, url, regions, args.seed)
+    image, redacted, fonts = redact_standin(fetcher, dataset, url, regions, args.seed)
     pii = pii_boxes(annotated, url, image.size)
     if args.margin == "auto":
         margin = safe_margin(regions, pii, image.size, args.max_margin)
@@ -357,7 +377,8 @@ def cmd_render(args) -> int:
     stem = url.rsplit("/", 1)[-1].rsplit(".", 1)[0][:40]
     before.save(args.out / f"{stem}_before.png")
     after.save(args.out / f"{stem}_after.png")
-    log.info("wrote %s_before.png and _after.png (%dx%d, seed %d)", stem, before.width, before.height, args.seed)
+    log.info("wrote %s_before.png and _after.png (%dx%d, seed %d, matched %s)",
+             stem, before.width, before.height, args.seed, ", ".join(dict.fromkeys(fonts)) or "?")
     return 0
 
 

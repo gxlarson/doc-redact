@@ -1,13 +1,13 @@
 [
   {
-    "url": "https://example.invalid/synthetic/employee_record.png",
+    "url": "https://example.invalid/synthetic/synthetic_serif.png",
     "annotations": [
       {
         "category": "name",
         "bbox": {
           "left": 330,
           "top": 138,
-          "width": 121,
+          "width": 140,
           "height": 26
         }
       },
@@ -16,7 +16,7 @@
         "bbox": {
           "left": 330,
           "top": 190,
-          "width": 121,
+          "width": 102,
           "height": 26
         }
       },
@@ -25,7 +25,7 @@
         "bbox": {
           "left": 330,
           "top": 242,
-          "width": 154,
+          "width": 90,
           "height": 26
         }
       },
@@ -34,7 +34,7 @@
         "bbox": {
           "left": 330,
           "top": 294,
-          "width": 143,
+          "width": 138,
           "height": 26
         }
       },
@@ -43,7 +43,7 @@
         "bbox": {
           "left": 330,
           "top": 346,
-          "width": 176,
+          "width": 104,
           "height": 26
         }
       },
@@ -52,7 +52,7 @@
         "bbox": {
           "left": 330,
           "top": 398,
-          "width": 209,
+          "width": 166,
           "height": 26
         }
       },
@@ -61,7 +61,7 @@
         "bbox": {
           "left": 330,
           "top": 450,
-          "width": 154,
+          "width": 123,
           "height": 26
         }
       },
@@ -70,35 +70,35 @@
         "bbox": {
           "left": 330,
           "top": 502,
-          "width": 209,
+          "width": 123,
           "height": 26
         }
       },
       {
         "category": "name",
         "bbox": {
-          "left": 330,
-          "top": 552,
-          "width": 140,
-          "height": 32
+          "left": 326.0,
+          "top": 561.0,
+          "width": 294.0,
+          "height": 34.0
         }
       },
       {
         "category": "name",
         "bbox": {
-          "left": 330,
-          "top": 610,
-          "width": 157,
-          "height": 32
+          "left": 328.0,
+          "top": 618.0,
+          "width": 318.0,
+          "height": 36.0
         }
       },
       {
         "category": "birth_date",
         "bbox": {
-          "left": 330,
-          "top": 668,
-          "width": 133,
-          "height": 32
+          "left": 332.0,
+          "top": 677.0,
+          "width": 110.0,
+          "height": 34.0
         }
       }
     ]

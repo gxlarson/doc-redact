@@ -1,0 +1,106 @@
+[
+  {
+    "url": "https://example.invalid/synthetic/synthetic_typewriter.png",
+    "annotations": [
+      {
+        "category": "name",
+        "bbox": {
+          "left": 330,
+          "top": 138,
+          "width": 132,
+          "height": 26
+        }
+      },
+      {
+        "category": "ssn",
+        "bbox": {
+          "left": 330,
+          "top": 190,
+          "width": 121,
+          "height": 26
+        }
+      },
+      {
+        "category": "birth_date",
+        "bbox": {
+          "left": 330,
+          "top": 242,
+          "width": 187,
+          "height": 26
+        }
+      },
+      {
+        "category": "birth_place",
+        "bbox": {
+          "left": 330,
+          "top": 294,
+          "width": 264,
+          "height": 26
+        }
+      },
+      {
+        "category": "street",
+        "bbox": {
+          "left": 330,
+          "top": 346,
+          "width": 154,
+          "height": 26
+        }
+      },
+      {
+        "category": "home_address",
+        "bbox": {
+          "left": 330,
+          "top": 398,
+          "width": 231,
+          "height": 26
+        }
+      },
+      {
+        "category": "home_phone",
+        "bbox": {
+          "left": 330,
+          "top": 450,
+          "width": 132,
+          "height": 26
+        }
+      },
+      {
+        "category": "marital_status",
+        "bbox": {
+          "left": 330,
+          "top": 502,
+          "width": 209,
+          "height": 26
+        }
+      },
+      {
+        "category": "name",
+        "bbox": {
+          "left": 334.0,
+          "top": 558.0,
+          "width": 136.0,
+          "height": 29.0
+        }
+      },
+      {
+        "category": "name",
+        "bbox": {
+          "left": 335.0,
+          "top": 618.0,
+          "width": 145.0,
+          "height": 24.0
+        }
+      },
+      {
+        "category": "birth_date",
+        "bbox": {
+          "left": 335.0,
+          "top": 679.0,
+          "width": 99.0,
+          "height": 21.0
+        }
+      }
+    ]
+  }
+]
