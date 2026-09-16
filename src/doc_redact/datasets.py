@@ -17,6 +17,15 @@ def _swap_ext(url: str, ext: str) -> str:
     return posixpath.splitext(url)[0] + ext
 
 
+def _with_ext(url: str, ext: str) -> str:
+    """``url`` with ``ext`` appended when it carries no extension of its own.
+
+    Some RVL-CDIP annotations lost the ".jpg" from their url; the file on the server still has it,
+    so the bare url 404s and the page would be dropped from the run.
+    """
+    return url if posixpath.splitext(url)[1] else url + ext
+
+
 @dataclass(frozen=True)
 class Dataset:
     name: str
@@ -58,9 +67,9 @@ DATASETS: dict[str, Dataset] = {
         ),
         Dataset(
             name="rvlcdip",
-            image_url=lambda doc: doc.url,
+            image_url=lambda doc: _with_ext(doc.url, ".jpg"),
             ocr_url=lambda doc: _swap_ext(doc.url.replace("/rvlcdip/", "/rvlcdip_ocr/"), ".json"),
-            output_name=lambda doc: doc.filename,
+            output_name=lambda doc: _with_ext(doc.filename, ".jpg"),
             font="Inconsolata-Variable.ttf",
             font_size=13,
         ),

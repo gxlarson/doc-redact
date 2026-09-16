@@ -12,10 +12,13 @@ Bounding boxes are in pixels, with the origin at the top-left of the image.
 from __future__ import annotations
 
 import json
+import logging
 import posixpath
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -114,19 +117,29 @@ class Document:
 
 
 def load_documents(path: str | Path) -> list[Document]:
+    """Load annotations, merging records that share a URL.
+
+    An export can list the same page more than once, with a different set of boxes each time
+    (annotated in several passes). Redaction starts from the original scan every time, so
+    processing them separately would let the last one written win and silently leave the other
+    records' boxes unredacted. Identical boxes are kept once.
+    """
     with open(path, "r", encoding="utf-8") as f:
         raw = json.load(f)
-    return [
-        Document(
-            url=item["url"],
-            image=item.get("image"),
-            annotations=[
-                Annotation(category=a["category"], bbox=bbox_from_dict(a["bbox"]))
-                for a in item["annotations"]
-            ],
-        )
-        for item in raw
-    ]
+    merged: dict[str, Document] = {}
+    duplicates = 0
+    for item in raw:
+        annotations = [Annotation(category=a["category"], bbox=bbox_from_dict(a["bbox"])) for a in item["annotations"]]
+        existing = merged.get(item["url"])
+        if existing is None:
+            merged[item["url"]] = Document(url=item["url"], image=item.get("image"), annotations=annotations)
+            continue
+        duplicates += 1
+        seen = set(existing.annotations)
+        existing.annotations.extend(a for a in annotations if a not in seen)
+    if duplicates:
+        log.info("merged %d repeated record(s) into %d document(s)", duplicates, len(merged))
+    return list(merged.values())
 
 
 def save_documents(docs: list[Document], path: str | Path) -> None:

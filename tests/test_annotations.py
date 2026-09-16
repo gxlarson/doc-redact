@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from doc_redact.annotations import BBox, Document, RelativeBBox, load_documents, parse_labelstudio, save_documents
@@ -62,3 +64,23 @@ def test_documents_round_trip(tmp_path):
     path = tmp_path / "docs.json"
     save_documents(docs, path)
     assert load_documents(path) == docs
+
+
+def test_records_sharing_a_url_are_merged(tmp_path):
+    """An export can annotate one page in several passes; each record redacts from the original scan,
+    so keeping them separate would let the last write win and leave the other boxes in place."""
+    path = tmp_path / "annotations.json"
+    path.write_text(json.dumps([
+        {"url": "https://host/rvlcdip/a.jpg", "annotations": [
+            {"category": "ssn", "bbox": {"left": 10, "top": 10, "width": 50, "height": 12}}]},
+        {"url": "https://host/rvlcdip/b.jpg", "annotations": [
+            {"category": "name", "bbox": {"left": 0, "top": 0, "width": 30, "height": 10}}]},
+        {"url": "https://host/rvlcdip/a.jpg", "annotations": [
+            {"category": "ssn", "bbox": {"left": 10, "top": 10, "width": 50, "height": 12}},  # same box again
+            {"category": "home_phone", "bbox": {"left": 80, "top": 40, "width": 60, "height": 12}}]},
+    ]), encoding="utf-8")
+
+    docs = load_documents(path)
+    assert [d.filename for d in docs] == ["a.jpg", "b.jpg"]  # order of first appearance
+    merged = docs[0]
+    assert [a.category for a in merged.annotations] == ["ssn", "home_phone"]  # duplicate box kept once

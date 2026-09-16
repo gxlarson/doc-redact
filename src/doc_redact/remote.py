@@ -43,10 +43,10 @@ class Fetcher:
     def image(self, url: str) -> Image.Image:
         return Image.open(io.BytesIO(self.fetch_bytes(url))).convert("RGB")
 
-    def image_mode(self, url: str) -> str:
-        """The mode the image is stored in ("L" for a grayscale scan), before ``image`` converts it."""
+    def image_kind(self, url: str) -> tuple[str, str | None]:
+        """The stored mode ("L" for a grayscale scan) and format ("JPEG"), before ``image`` converts it."""
         with Image.open(io.BytesIO(self.fetch_bytes(url))) as im:
-            return im.mode
+            return im.mode, im.format
 
     def image_size(self, url: str) -> tuple[int, int]:
         # Image.open only parses the header, so this avoids decoding the pixels.

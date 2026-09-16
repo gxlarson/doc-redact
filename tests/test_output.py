@@ -1,4 +1,6 @@
 """Saving redacted pages: the source's colour mode and extension are respected. Values are invented."""
+import dataclasses
+
 import numpy as np
 import pytest
 from PIL import Image
@@ -11,8 +13,12 @@ DOC = Document(url="https://host/rvlcdip/train_letter_abc.jpg", annotations=[])
 DATASET = DATASETS["rvlcdip"]
 
 
-def _names(tmp_path, image_format):
-    return [str(p.relative_to(tmp_path)).replace("\\", "/") for p in pipeline.output_paths(tmp_path, DATASET, DOC, image_format)]
+NO_EXTENSION = Document(url="https://host/rvlcdip/test_resume_abc", annotations=[])
+
+
+def _names(tmp_path, image_format, doc=DOC, source_format=None):
+    return [str(p.relative_to(tmp_path)).replace("\\", "/")
+            for p in pipeline.output_paths(tmp_path, DATASET, doc, image_format, source_format)]
 
 
 def test_output_path_follows_the_requested_format(tmp_path):
@@ -20,6 +26,22 @@ def test_output_path_follows_the_requested_format(tmp_path):
     assert _names(tmp_path, "png") == ["train_letter_abc.png"]
     assert _names(tmp_path, "jpeg") == ["train_letter_abc.jpg"]
     assert _names(tmp_path, "both") == ["png/train_letter_abc.png", "jpg/train_letter_abc.jpg"]
+
+
+def test_rvlcdip_urls_missing_their_extension_get_it_back(tmp_path):
+    """100 RVL-CDIP annotations lost the ".jpg"; the file on the server still has it."""
+    assert DATASET.image_url(NO_EXTENSION).endswith("/test_resume_abc.jpg")
+    assert DATASET.ocr_url(NO_EXTENSION).endswith("/rvlcdip_ocr/test_resume_abc.json")
+    assert _names(tmp_path, "same", NO_EXTENSION, "JPEG") == ["test_resume_abc.jpg"]
+
+
+def test_a_bare_output_name_takes_the_format_the_server_sent(tmp_path):
+    """Datasets whose output name has no suffix: a suffixless path gives the encoder nothing to go on."""
+    bare = dataclasses.replace(DATASET, output_name=lambda doc: "page")
+    assert pipeline.output_paths(tmp_path, bare, DOC, "same", "JPEG")[0].name == "page.jpg"
+    assert pipeline.output_paths(tmp_path, bare, DOC, "same", "PNG")[0].name == "page.png"
+    assert pipeline.output_paths(tmp_path, bare, DOC, "same", None)[0].name == "page.png"
+    assert pipeline.output_paths(tmp_path, bare, DOC, "png")[0].name == "page.png"  # explicit format needs no source
 
 
 def test_a_grayscale_scan_is_saved_grayscale(tmp_path):

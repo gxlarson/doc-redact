@@ -96,17 +96,28 @@ def redact_document(image: Image.Image, doc: Document, page_ocr: dict | None, op
     return image
 
 
-def output_paths(out_dir: Path, dataset: Dataset, doc: Document, image_format: str) -> list[Path]:
+SUFFIX_FOR_FORMAT = {"JPEG": ".jpg", "PNG": ".png", "TIFF": ".tif", "GIF": ".gif", "BMP": ".bmp"}
+
+
+def output_paths(out_dir: Path, dataset: Dataset, doc: Document, image_format: str,
+                 source_format: str | None = None) -> list[Path]:
     """Where a redacted page is written. "same" keeps the source's own extension; "both" writes the
-    page twice from one render, as a lossless PNG and a compact JPEG of identical pixels."""
-    stem = Path(dataset.output_name(doc)).stem
+    page twice from one render, as a lossless PNG and a compact JPEG of identical pixels.
+
+    Some URLs carry no extension at all. For those, "same" falls back to ``source_format`` (what the
+    server actually sent), because a path with no suffix gives the encoder nothing to go on.
+    """
+    name = dataset.output_name(doc)
+    stem = Path(name).stem
     if image_format == "png":
         return [out_dir / f"{stem}.png"]
     if image_format == "jpeg":
         return [out_dir / f"{stem}.jpg"]
     if image_format == "both":
         return [out_dir / "png" / f"{stem}.png", out_dir / "jpg" / f"{stem}.jpg"]
-    return [out_dir / dataset.output_name(doc)]
+    if not Path(name).suffix:
+        name = stem + SUFFIX_FOR_FORMAT.get(source_format or "", ".png")
+    return [out_dir / name]
 
 
 def save_page(image: Image.Image, path: Path, source_mode: str, jpeg_quality: int) -> None:
@@ -147,11 +158,11 @@ def run(
         image_url = dataset.image_url(doc)
         log.info("[%d/%d] %s", i, len(docs), image_url)
         try:
-            source_mode = fetcher.image_mode(image_url)
+            source_mode, source_format = fetcher.image_kind(image_url)
             image = fetcher.image(image_url)
             page_ocr = fetcher.json(dataset.ocr_url(doc)) if options.mode is Mode.PSEUDO else None
             redacted = redact_document(image, doc, page_ocr, options)
-            for path in output_paths(out_dir, dataset, doc, image_format):
+            for path in output_paths(out_dir, dataset, doc, image_format, source_format):
                 save_page(redacted, path, source_mode, jpeg_quality)
         except Exception as exc:  # keep going; one bad page shouldn't sink a batch
             log.error("failed on %s: %r", doc.stem, exc, exc_info=log.isEnabledFor(logging.DEBUG))
