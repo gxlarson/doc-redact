@@ -224,7 +224,9 @@ def detect_rules(gray: np.ndarray, bbox: BBox, words: list[Word] | None = None) 
             total = float(weight.sum())
             if total <= 0:
                 continue
-            centers.append(float(((ys[column] + y0) * weight).sum() / total))
+            # +0.5: row r covers [r, r+1) and is centred at r+0.5, which is the coordinate system
+            # draw_rule works in. Fitting through bare row indices drew every line half a pixel high.
+            centers.append(float(((ys[column] + y0 + 0.5) * weight).sum() / total))
             masses.append(total)
             cores.append(float(values[column].min()))
             widths.append(int(column.sum()))

@@ -104,7 +104,8 @@ def test_faint_notebook_rules_under_dark_handwriting_are_found():
     layout.draw_text(img, (215, 72), "5-17-31 box", HAND, 44)
     gray = np.asarray(img.convert("L"))
     rules = background.detect_rules(gray, BOX)
-    assert sorted(round(r.y_at(300)) for r in rules) == [88, 119]
+    # A rule's position is the centre of its ink, so a line drawn on row r sits at r + 0.5.
+    assert [round(y - 0.5) for y in sorted(r.y_at(300) for r in rules)] == [88, 119]
     assert all(220 <= r.gray <= 240 for r in rules)  # redrawn as faint as they were
 
 
@@ -220,7 +221,7 @@ def test_a_redrawn_rule_keeps_the_original_line_dark_and_in_place():
     [rule] = background.detect_rules(gray, box)
     assert rule.gray < 30, "the redrawn line should carry the core's darkness, not a blend with its edges"
     assert rule.thickness < 2.0, "one dark row, not the full extent of everything under the threshold"
-    assert abs(rule.y_at(np.array([250.0]))[0] - row) < 0.5
+    assert abs(rule.y_at(np.array([250.0]))[0] - (row + 0.5)) < 0.4  # ink centre, not row index
 
     canvas = rgb.copy()
     background.blank(canvas, rgb, gray, box, np.random.default_rng(0), paper_fill=False, keep_lines=True)
