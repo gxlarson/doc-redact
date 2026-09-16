@@ -16,18 +16,41 @@ shaped like a birth date, chosen automatically by `scripts/paper_figures.py`, wh
 * the crop itself overlaps no annotated PII box, so the figure cannot publish real data from
   elsewhere on the page.
 
-Each crop here was also reviewed by eye, since those checks only know about boxes that *were*
-annotated. One candidate was dropped at that stage: its crop carried CV details (research topic,
-society, dates) that could identify someone indirectly even with no name in frame.
+Wider crops need more than that, because the annotations only mark the *subject's* PII. Show 300px of
+a real page and you will pull in a signing officer, a physician, an agency contact — real people whom
+no box covers. So two further screens run over everything inside the crop:
+
+* **unannotated names**, by rarity: a capitalised word appearing on almost no other page is somebody's
+  name, while a form's printed furniture appears everywhere. Honorifics, credentials and
+  initial-plus-name patterns count too.
+* **sensitive or re-identifying content**: a diagnosis is sensitive with or without a name, and a
+  career history ("Senior Analyst, Regional Water Authority of Northfield, 1981–83") names nobody while
+  narrowing the subject to a handful of people.
+
+For the same reason `find` skips the personal-record classes by default (`resume`, `questionnaire`,
+`handwritten`): on those, the context *is* the personal data. Invoices, letters, budgets and forms
+carry institutional context that is safe to show.
+
+Even so, every crop here was reviewed by eye. Two candidates were dropped at that stage that the
+screens had passed, and one crop was refused by the name screen because a "Mr. …" addressee line
+clipped its bottom edge.
 
 **In the paper, say that these regions are stand-ins.** The pipeline is doing exactly what it does to
 a real PII box, but the "before" text was never personal.
 
 | files | shows | command |
 |---|---|---|
-| `test_invoice_09998110-*` | style matching: a date replaced in its own format and typeface | `render --page test_invoice_09998110-857a --box 356,168,111,14 --category birth_date --seed 0` |
-| `test_invoice_e64e7d01-*` | the rule under the text survives the erase | `render --page test_invoice_e64e7d01 --box 479,212,96,15 --category birth_date --seed 3` |
-| `train_resume_72209ce5-*` | linking: the same value in two boxes gets one replacement | `render --page train_resume_72209ce5 --box 114,794,73,15 --box 18,765,72,14 --category birth_date --seed 0 --margin 24` |
+| `train_invoice_aa0c9b64-*` | style matching, and that only the annotated box changes: the invoice number beside it is untouched | `render --page train_invoice_aa0c9b64 --box 187,146,157,13 --category birth_date --seed 0 --scale 3` |
+| `train_letter_99afcf16-*` | a date replaced in place under a full letterhead | `render --page train_letter_99afcf16 --box 381,196,100,14 --category birth_date --seed 0 --scale 2 --pad 340,190,340,45` |
+
+`--margin auto` (the default) takes the widest context a page allows before touching annotated PII;
+`--pad LEFT,TOP,RIGHT,BOTTOM` is for pages that are only safe on some sides, like the letterhead
+above, where the institution's name sits above the date and the addressee just below it.
+
+A third candidate was rendered and then dropped, for a reason worth knowing: on a preprinted voucher
+reading `April 10 ___ 19 87`, the `19` is part of the *form*, not the value. The stand-in box spanned
+it, so the replacement came out as `October 18 45  87` — not a date. Real `birth_date` boxes on such
+forms have the same problem, so it is a limitation to be aware of rather than only a bad figure.
 
 ```sh
 python scripts/paper_figures.py render --annotations <annotations.json> --cache <cache> -o figures/ ...

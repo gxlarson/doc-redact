@@ -145,11 +145,73 @@ def redact_standin(fetcher, dataset, url: str, regions, seed: int):
     return image, pipeline.redact_document(image, doc, page_ocr, options)
 
 
+# Content that identifies a person without naming them, or that is sensitive on its own. A career
+# history ("Senior Analyst, Regional Water Authority of Northfield, 1981-83") names nobody and still narrows the
+# subject to a handful of people; a diagnosis is sensitive whether or not anyone is named.
+SENSITIVE = {
+    "diagnosis", "patient", "autopsy", "deceased", "death", "cremation", "mortuary", "burial",
+    "psychiatric", "surgical", "inpatient", "outpatient", "carcinoma", "cancer", "tumor", "illness",
+    "injury", "treatment", "internship", "residency", "curriculum", "vitae", "employment",
+}
+
+HONORIFICS = {"mr", "mrs", "ms", "miss", "dr", "prof", "rev", "hon", "sgt", "capt", "lt", "col", "gen"}
+CREDENTIALS = {"m.d.", "md", "ph.d.", "phd", "d.d.s.", "r.n.", "rn", "esq", "jr", "sr", "r.r.a."}
+_INITIALS = re.compile(r"[A-Z]\.")
+_TITLE_CASE = re.compile(r"[A-Z][a-z]{2,}")
+
+
+def names_in_crop(window: BBox, words, df) -> list[str]:
+    """Person-name evidence inside a crop, as shapes, not the names themselves.
+
+    The annotation file marks only the subject's own PII, so a wider crop can pull in a third party --
+    a signing officer, a physician, an agency contact -- that no box covers. Rarity does the work: a
+    capitalised word that appears on almost no other page is somebody's name, while the words that make
+    up a form's printed furniture appear everywhere.
+    """
+    # Any overlap counts, not half: a crop edge that clips an addressee line still shows part of the name.
+    inside = [w for w in words if window.intersection_area(w.bbox) > 0]
+    hits = []
+    for i, word in enumerate(inside):
+        bare = word.text.strip(".,:;()").lower()
+        if bare in SENSITIVE:
+            hits.append(f"sensitive content ({bare})")
+            continue
+        if bare in HONORIFICS or word.text.strip(",:;()").lower() in CREDENTIALS:
+            hits.append("honorific/credential")
+            continue
+        if _INITIALS.fullmatch(word.text) and i + 1 < len(inside) and _TITLE_CASE.fullmatch(inside[i + 1].text):
+            hits.append("initial + capitalised word")
+            continue
+        if _TITLE_CASE.fullmatch(word.text) and df[bare] <= 2:
+            nxt = inside[i + 1].text if i + 1 < len(inside) else ""
+            if _TITLE_CASE.fullmatch(nxt) and df[nxt.strip(".,:;()").lower()] <= 2:
+                hits.append("two rare capitalised words")
+    return hits
+
+
+def safe_margin(regions, pii: list[BBox], size, wanted: int, floor: int = 8) -> int:
+    """The largest margin up to ``wanted`` whose crop still touches no annotated PII box.
+
+    A figure reads better with the surrounding form visible, but every pixel of that context comes off
+    a real page, so how wide we can go is decided by where the real PII sits, not by taste.
+    """
+    margin = wanted
+    while margin > floor:
+        window = crop_window(regions, size, (margin, max(1, margin // 3)))
+        if not any(window.intersection_area(b) > 0 for b in pii):
+            return margin
+        margin = int(margin * 0.8)
+    return 0
+
+
 def crop_window(regions, size, margin=(40, 12)) -> BBox:
-    left = min(b.left for b, _ in regions) - margin[0]
-    top = min(b.top for b, _ in regions) - margin[1]
-    right = max(b.right for b, _ in regions) + margin[0]
-    bottom = max(b.bottom for b, _ in regions) + margin[1]
+    """``margin`` is (x, y), or (left, top, right, bottom) when the page is only safe on some sides:
+    a letterhead may be worth showing above the date while the addressee sits just below it."""
+    l, t, r, b = margin if len(margin) == 4 else (margin[0], margin[1], margin[0], margin[1])
+    left = min(box.left for box, _ in regions) - l
+    top = min(box.top for box, _ in regions) - t
+    right = max(box.right for box, _ in regions) + r
+    bottom = max(box.bottom for box, _ in regions) + b
     left, top = max(0, left), max(0, top)
     return BBox(left, top, min(size[0], right) - left, min(size[1], bottom) - top)
 
@@ -170,18 +232,35 @@ def cmd_find(args) -> int:
     found = find_candidates(fetcher, dataset, annotated, loaded, df, args.min_df)
     log.info("candidates: %s", {k: len(v) for k, v in found.items()})
 
-    rows, skipped = [], 0
+    rows, skipped, unnamed = [], 0, 0
     for phenomenon, items in sorted(found.items()):
-        for url, regions, text in items[:args.per_phenomenon]:
+        shown = 0
+        for url, regions, text in items:
+            if shown >= args.per_phenomenon:
+                break
+            if args.classes and not any(f"_{c}_" in url for c in args.classes):
+                continue
+            if any(f"_{c}_" in url for c in args.exclude_classes or []):
+                continue
             image, redacted = redact_standin(fetcher, dataset, url, regions, args.seed)
-            window = crop_window(regions, image.size)
-            if any(window.intersection_area(b) > 0 for b in pii_boxes(annotated, url, image.size)):
-                skipped += 1  # would publish real PII from elsewhere on the page
+            pii = pii_boxes(annotated, url, image.size)
+            margin = safe_margin(regions, pii, image.size, args.context)
+            if margin < args.min_context:
+                skipped += 1  # real PII sits too close to show any context around this one
+                continue
+            window = crop_window(regions, image.size, (margin, max(1, margin // 3)))
+            evidence = names_in_crop(window, loaded[url][0], df)
+            if evidence:
+                unnamed += 1
+                log.debug("skipping %s: crop shows %s", url.rsplit("/", 1)[-1][:24], sorted(set(evidence)))
                 continue
             scale = max(1, min(4, int(340 / max(1, window.width))))
-            rows.append((phenomenon, regions[0][1], url, crop_pair(image, redacted, window, scale), regions))
+            rows.append((phenomenon, regions[0][1], url, crop_pair(image, redacted, window, scale), regions, margin))
+            shown += 1
     if skipped:
-        log.info("dropped %d crop(s) that would have shown an annotated PII box", skipped)
+        log.info("dropped %d candidate(s): real PII sits within %dpx of the stand-in", skipped, args.min_context)
+    if unnamed:
+        log.info("dropped %d candidate(s): the crop showed a person's name that no annotation covers", unnamed)
     if not rows:
         log.error("no candidates survived; try a lower --min-df or a fuller cache")
         return 1
@@ -195,9 +274,9 @@ def cmd_find(args) -> int:
     draw.text((255 + rows[0][3][0].width + pad, 8), "after (redacted as if it were PII)", fill=(0, 0, 0))
     y = 26
     index = []
-    for phenomenon, category, url, tiles, regions in rows:
+    for phenomenon, category, url, tiles, regions, margin in rows:
         draw.text((6, y + 4), phenomenon[:36], fill=(0, 0, 0))
-        draw.text((6, y + 18), f"as {category}", fill=(60, 60, 60))
+        draw.text((6, y + 18), f"as {category}, {margin}px context", fill=(60, 60, 60))
         draw.text((6, y + 32), url.rsplit("/", 1)[-1][:26], fill=(90, 90, 90))
         x = 250
         for tile in tiles:
@@ -209,6 +288,7 @@ def cmd_find(args) -> int:
             "phenomenon": phenomenon, "category": category, "url": url, "seed": args.seed,
             "page": url.rsplit("/", 1)[-1].rsplit(".", 1)[0],
             "boxes": [f"{b.left:.0f},{b.top:.0f},{b.width:.0f},{b.height:.0f}" for b, _ in regions],
+            "margin": margin,  # the widest context this page allows without touching real PII
         })
     args.out.mkdir(parents=True, exist_ok=True)
     sheet.save(args.out / "candidates.png")
@@ -219,18 +299,35 @@ def cmd_find(args) -> int:
 
 def cmd_render(args) -> int:
     fetcher = Fetcher(args.cache)
-    annotated = {d["url"]: d for d in json.load(open(args.annotations, encoding="utf-8"))}
-    url = next((u for u in annotated if args.page in u), None)
+    annotated, loaded, df = load_pages(fetcher, dataset, args.annotations, args.cache)
+    url = next((u for u in loaded if args.page in u), None) or next((u for u in annotated if args.page in u), None)
     if url is None:
         log.error("no annotated page matches %r", args.page)
         return 1
     regions = [(BBox(*(float(v) for v in spec.split(","))), args.category) for spec in args.box]
     image, redacted = redact_standin(fetcher, dataset, url, regions, args.seed)
-    window = crop_window(regions, image.size, margin=(args.margin, args.margin // 3 or 1))
-    overlap = [b for b in pii_boxes(annotated, url, image.size) if window.intersection_area(b) > 0]
+    pii = pii_boxes(annotated, url, image.size)
+    if args.margin == "auto":
+        margin = safe_margin(regions, pii, image.size, args.max_margin)
+        if not margin:
+            log.error("refusing: real PII sits right beside this region, so no context can be shown")
+            return 1
+        log.info("widest context this page allows: %dpx", margin)
+    else:
+        margin = int(args.margin)
+    pad = tuple(int(v) for v in args.pad.split(",")) if args.pad else (margin, margin // 3 or 1)
+    window = crop_window(regions, image.size, margin=pad)
+    overlap = [b for b in pii if window.intersection_area(b) > 0]
     if overlap:
         log.error("refusing: the crop would show %d annotated PII box(es); move it or shrink --margin", len(overlap))
         return 1
+    if url in loaded:
+        evidence = sorted(set(names_in_crop(window, loaded[url][0], df)))
+        if evidence:
+            log.error("refusing: the crop shows %s, which no annotation covers; shrink --margin", ", ".join(evidence))
+            return 1
+    else:
+        log.warning("this page's OCR is not cached, so the crop was not screened for unannotated names")
     before, after = crop_pair(image, redacted, window, args.scale)
     args.out.mkdir(parents=True, exist_ok=True)
     stem = url.rsplit("/", 1)[-1].rsplit(".", 1)[0][:40]
@@ -254,13 +351,21 @@ def main() -> int:
     f = sub.add_parser("find", parents=[common], help="contact sheet of candidate stand-in figures")
     f.add_argument("--min-df", type=int, default=8, help="a stand-in's words must appear on this many pages")
     f.add_argument("--per-phenomenon", type=int, default=2)
+    f.add_argument("--context", type=int, default=260, help="px of surrounding page to show, if the page allows it")
+    f.add_argument("--min-context", type=int, default=60, help="skip candidates that cannot show this much")
+    f.add_argument("--classes", nargs="*", help="only these RVL-CDIP classes, e.g. invoice specification")
+    f.add_argument("--exclude-classes", nargs="*", default=["resume", "questionnaire", "handwritten"],
+                   help="classes to skip (default: the personal-record classes, whose context identifies "
+                        "the subject through career history and the like even with every name removed)")
     f.set_defaults(func=cmd_find)
 
     r = sub.add_parser("render", parents=[common], help="render one figure at publication resolution")
     r.add_argument("--page", required=True, help="substring of the page url")
     r.add_argument("--box", action="append", required=True, metavar="LEFT,TOP,WIDTH,HEIGHT")
     r.add_argument("--category", required=True)
-    r.add_argument("--margin", type=int, default=40)
+    r.add_argument("--margin", default="auto", help="px of context, or 'auto' for the widest this page allows")
+    r.add_argument("--max-margin", type=int, default=300, help="cap for --margin auto")
+    r.add_argument("--pad", help="per-side context as LEFT,TOP,RIGHT,BOTTOM; overrides --margin")
     r.add_argument("--scale", type=int, default=4)
     r.set_defaults(func=cmd_render)
 
