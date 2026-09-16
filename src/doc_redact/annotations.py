@@ -16,7 +16,7 @@ import logging
 import posixpath
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 log = logging.getLogger(__name__)
 
@@ -116,30 +116,41 @@ class Document:
         )
 
 
-def load_documents(path: str | Path) -> list[Document]:
-    """Load annotations, merging records that share a URL.
+def merge_documents(docs: list[Document], key: Callable[[Document], str] = lambda doc: doc.url) -> list[Document]:
+    """Merge documents that share ``key``, keeping identical boxes once.
 
     An export can list the same page more than once, with a different set of boxes each time
     (annotated in several passes). Redaction starts from the original scan every time, so
     processing them separately would let the last one written win and silently leave the other
-    records' boxes unredacted. Identical boxes are kept once.
+    records' boxes unredacted.
     """
-    with open(path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
     merged: dict[str, Document] = {}
     duplicates = 0
-    for item in raw:
-        annotations = [Annotation(category=a["category"], bbox=bbox_from_dict(a["bbox"])) for a in item["annotations"]]
-        existing = merged.get(item["url"])
+    for doc in docs:
+        existing = merged.get(key(doc))
         if existing is None:
-            merged[item["url"]] = Document(url=item["url"], image=item.get("image"), annotations=annotations)
+            merged[key(doc)] = Document(url=doc.url, image=doc.image, annotations=list(doc.annotations))
             continue
         duplicates += 1
         seen = set(existing.annotations)
-        existing.annotations.extend(a for a in annotations if a not in seen)
+        existing.annotations.extend(a for a in doc.annotations if a not in seen)
     if duplicates:
         log.info("merged %d repeated record(s) into %d document(s)", duplicates, len(merged))
     return list(merged.values())
+
+
+def load_documents(path: str | Path) -> list[Document]:
+    """Load annotations, merging records that share a URL (see :func:`merge_documents`)."""
+    with open(path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+    return merge_documents([
+        Document(
+            url=item["url"],
+            image=item.get("image"),
+            annotations=[Annotation(category=a["category"], bbox=bbox_from_dict(a["bbox"])) for a in item["annotations"]],
+        )
+        for item in raw
+    ])
 
 
 def save_documents(docs: list[Document], path: str | Path) -> None:

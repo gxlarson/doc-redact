@@ -12,7 +12,7 @@ import numpy as np
 from PIL import Image
 
 from doc_redact import addresses, baseline, checks, geometry, ocr, people, render, typeface, values
-from doc_redact.annotations import Document
+from doc_redact.annotations import Document, merge_documents
 from doc_redact.datasets import Dataset
 from doc_redact import fakedata
 from doc_redact.categories import canonical
@@ -150,6 +150,9 @@ def run(
 ) -> list[tuple[Document, Exception]]:
     """Redact each document into ``out_dir``. Returns the documents that failed."""
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Records can differ in URL yet land on one output file (a URL listed with and without its
+    # extension); merge on the output name too, or the last one written would win.
+    docs = merge_documents(docs, key=dataset.output_name)
     failures = []
     for i, doc in enumerate(docs, 1):
         if not doc.annotations and not keep_unannotated:

@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from doc_redact import pipeline
-from doc_redact.annotations import Document
+from doc_redact.annotations import Annotation, BBox, Document
 from doc_redact.datasets import DATASETS
 
 DOC = Document(url="https://host/rvlcdip/train_letter_abc.jpg", annotations=[])
@@ -93,3 +93,24 @@ def test_quality_applies_to_jpeg_only_and_png_is_lossless(tmp_path, suffix):
     else:
         assert low.stat().st_size == high.stat().st_size
         assert np.array_equal(np.asarray(Image.open(low)), np.asarray(noisy.convert("L")))
+
+
+def test_a_page_listed_with_and_without_its_extension_is_redacted_once_with_every_box(tmp_path, monkeypatch):
+    """Both records write test_resume_abc.jpg; redacted separately, the last write would win."""
+    ssn = Annotation("ssn", BBox(left=10, top=10, width=50, height=12))
+    name = Annotation("name", BBox(left=0, top=40, width=30, height=10))
+    docs = [dataclasses.replace(NO_EXTENSION, annotations=[ssn]),
+            Document(url=NO_EXTENSION.url + ".jpg", annotations=[ssn, name])]
+
+    class Fetcher:
+        def image_kind(self, url): return "L", "JPEG"
+        def image(self, url): return Image.new("RGB", (100, 100), "white")
+        def json(self, url): return {"Blocks": []}
+
+    redacted = []
+    monkeypatch.setattr(pipeline, "redact_document", lambda image, doc, ocr, options: redacted.append(doc) or image)
+    monkeypatch.setattr(pipeline, "save_page", lambda *args: None)
+    pipeline.run(docs, DATASET, Fetcher(), tmp_path, pipeline.Options(mode=pipeline.Mode.WHITE, text=None), image_format="both")
+
+    assert len(redacted) == 1
+    assert redacted[0].annotations == [ssn, name]
