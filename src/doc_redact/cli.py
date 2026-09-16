@@ -36,6 +36,16 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--mode", choices=[m.value for m in pipeline.Mode], default="pseudo")
     r.add_argument("-o", "--out", type=Path, required=True, help="output directory")
     r.add_argument(
+        "--format", dest="image_format", choices=["same", "png", "jpeg"], default="same",
+        help="output image format; 'same' (default) keeps each source's extension. png avoids re-encoding "
+             "artifacts on pages that were already JPEG, at a few times the file size",
+    )
+    r.add_argument(
+        "--jpeg-quality", type=int, default=95, metavar="N",
+        help="quality for JPEG output (default 95); lower values add compression artifacts across the whole "
+             "page, not only the replaced regions",
+    )
+    r.add_argument(
         "--font",
         help="use this font for every box (path, bundled font, or system font name); disables --match-font",
     )
@@ -145,7 +155,8 @@ def cmd_redact(args: argparse.Namespace) -> int:
         ),
     )
     failures = pipeline.run(
-        docs, dataset, Fetcher(args.cache), args.out, options, keep_unannotated=args.keep_unannotated
+        docs, dataset, Fetcher(args.cache), args.out, options, keep_unannotated=args.keep_unannotated,
+        image_format=args.image_format, jpeg_quality=args.jpeg_quality,
     )
     if failures:
         logging.error("%d document(s) failed: %s", len(failures), ", ".join(d.stem for d, _ in failures))

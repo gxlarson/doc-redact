@@ -101,6 +101,26 @@ it first as above rather than having 12 workers download the same corpus.
 Failures are logged per page and skipped, and each process exits non-zero if any of its
 pages failed, so check the exit codes rather than assuming a silent run was complete.
 
+### Output files
+
+One file per page, written flat into `--out` (created if missing), named after the
+source: RVL-CDIP and Tobacco pages keep their `.jpg` name, FUNSD its `.png`. A grayscale
+scan is saved grayscale, even though pages are edited in RGB.
+
+JPEG sources are re-encoded, which touches the whole page and not only the replaced
+regions. Measured on RVL-CDIP scans, against the original pixels outside every
+annotation:
+
+| output | size/page | drift outside the replaced regions |
+|---|---|---|
+| `--format same` (JPEG, quality 95) | ~180 KB | 0.31 gray levels |
+| `--format png` | ~190 KB | 0.003 (lossless) |
+| `--format same --jpeg-quality 60` | ~86 KB | 1.7 gray levels |
+
+If the redacted pages will be compared against unmodified originals, or used to train or
+evaluate a model, prefer `--format png`: re-encoding artifacts spread across the page
+are a difference between the two sets that has nothing to do with redaction.
+
 Options for `redact`:
 
 | Option | Meaning |
@@ -119,6 +139,8 @@ Options for `redact`:
 | `--[no-]paper-fill` | fill erased boxes with paper sampled from around them (color, noise, specks) instead of white (default on) |
 | `--[no-]keep-lines` | detect horizontal rules crossing a box and redraw them synthetically after erasing (default on) |
 | `--[no-]handwriting` | replace handwritten text with handwriting, one face per document (default on) |
+| `--format` | `same` (default, keeps each source's extension), `png` or `jpeg` |
+| `--jpeg-quality N` | quality for JPEG output (default 95) |
 | `--only ID` | process only these documents (repeatable) |
 | `--text CATEGORY=TEXT` | fixed replacement text for a category |
 | `--seed N` | reproducible fake data and augmentation |

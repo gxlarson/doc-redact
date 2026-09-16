@@ -96,6 +96,33 @@ def redact_document(image: Image.Image, doc: Document, page_ocr: dict | None, op
     return image
 
 
+def output_path(out_dir: Path, dataset: Dataset, doc: Document, image_format: str) -> Path:
+    """Where a redacted page is written; ``image_format`` "same" keeps the source's own extension."""
+    name = dataset.output_name(doc)
+    if image_format == "png":
+        name = Path(name).stem + ".png"
+    elif image_format == "jpeg":
+        name = Path(name).stem + ".jpg"
+    return out_dir / name
+
+
+def save_page(image: Image.Image, path: Path, source_mode: str, jpeg_quality: int) -> None:
+    """Save a redacted page, keeping a grayscale scan grayscale.
+
+    Pages are edited in RGB, but writing a single-channel scan back as three channels triples the
+    pixel data and lets JPEG chroma subsampling touch pixels we never painted. Bilevel sources come
+    back as grayscale, not 1-bit: the replacement text is antialiased, and rethresholding it would
+    look nothing like the scan around it.
+    """
+    if source_mode in ("L", "1") and image.mode != "L":
+        image = image.convert("L")
+    if path.suffix.lower() in (".jpg", ".jpeg"):
+        # subsampling=0 keeps full chroma resolution on the pages that really are colour.
+        image.save(path, quality=jpeg_quality, subsampling=0)
+    else:
+        image.save(path)
+
+
 def run(
     docs: list[Document],
     dataset: Dataset,
@@ -103,6 +130,8 @@ def run(
     out_dir: Path,
     options: Options,
     keep_unannotated: bool = False,
+    image_format: str = "same",
+    jpeg_quality: int = 95,
 ) -> list[tuple[Document, Exception]]:
     """Redact each document into ``out_dir``. Returns the documents that failed."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -114,10 +143,11 @@ def run(
         image_url = dataset.image_url(doc)
         log.info("[%d/%d] %s", i, len(docs), image_url)
         try:
+            source_mode = fetcher.image_mode(image_url)
             image = fetcher.image(image_url)
             page_ocr = fetcher.json(dataset.ocr_url(doc)) if options.mode is Mode.PSEUDO else None
             redacted = redact_document(image, doc, page_ocr, options)
-            redacted.save(out_dir / dataset.output_name(doc))
+            save_page(redacted, output_path(out_dir, dataset, doc, image_format), source_mode, jpeg_quality)
         except Exception as exc:  # keep going; one bad page shouldn't sink a batch
             log.error("failed on %s: %r", doc.stem, exc, exc_info=log.isEnabledFor(logging.DEBUG))
             failures.append((doc, exc))
