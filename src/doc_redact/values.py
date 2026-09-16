@@ -90,8 +90,7 @@ def _new_value(category: str):
     if category == "ssn":
         return FakeDigits(fakedata.ssn_digits())
     if category == "home_phone":
-        return FakeDigits(f"{random.randint(2, 9)}{random.randint(0, 99):02d}{random.randint(2, 9)}"
-                          f"{random.randint(0, 999999):06d}")
+        return FakeDigits(fakedata.phone_digits())
     if category == "age":
         return FakeDigits(str(random.randint(29, 59)))
     if category == "other_id":

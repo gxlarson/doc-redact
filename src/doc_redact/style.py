@@ -58,6 +58,7 @@ class TextDate:
     day_first: bool
     comma: bool
     year_digits: int
+    has_day: bool = True  # "Jan. 1968" names a month and a year only
 
 
 DateStyle = Union[NumericDate, TextDate]
@@ -65,7 +66,15 @@ DateStyle = Union[NumericDate, TextDate]
 _NUMERIC_DATE = re.compile(r"(\d{1,2})\s*([-/.])\s*(\d{1,2})\s*\2\s*(\d{4}|\d{2})")
 _MONTH_TOKEN = r"(?P<month>[A-Za-z]{3,9})(?P<dot>\.)?"
 _MONTH_FIRST = re.compile(_MONTH_TOKEN + r"\s*(?P<day>\d{1,2})(?:st|nd|rd|th)?\s*(?P<comma>,)?\s*(?P<year>\d{4}|\d{2})")
+# Tried before the others: "Sept. 1972" would otherwise match _MONTH_FIRST with the year split into a
+# day ("19") and a two-digit year ("72"), turning a month-and-year date into a full one.
+_MONTH_YEAR = re.compile(_MONTH_TOKEN + r"\s*(?P<comma>,)?\s*(?P<year>\d{4}|\d{2})")
 _DAY_FIRST = re.compile(r"(?P<day>\d{1,2})(?:st|nd|rd|th)?\s+" + _MONTH_TOKEN + r"\s*(?P<comma>,)?\s*(?P<year>\d{4}|\d{2})")
+
+
+def _month_number(token: str) -> int:
+    lower = token.lower()
+    return next(i for i, name in enumerate(MONTHS, start=1) if name.lower().startswith(lower))
 
 
 def _month_form(token: str, dot: bool) -> str | None:
@@ -97,12 +106,17 @@ def parse_date(text: str) -> tuple[DateStyle, int, int, int] | None:
         if not (1 <= month <= 12 and 1 <= day <= 31):
             return None
         return NumericDate(sep=m[2], year_digits=len(year), pad=pad, day_first=day_first), _full_year(year), month, day
+    if (m := _MONTH_YEAR.fullmatch(t)) and (form := _month_form(m["month"], bool(m["dot"]))):
+        month = _month_number(m["month"])
+        style = TextDate(month=form, day_first=False, comma=bool(m["comma"]), year_digits=len(m["year"]), has_day=False)
+        return style, _full_year(m["year"]), month, 1
     for pattern, day_first in ((_MONTH_FIRST, False), (_DAY_FIRST, True)):
         if (m := pattern.fullmatch(t)) and (form := _month_form(m["month"], bool(m["dot"]))):
-            token = m["month"].lower()
-            month = next(i for i, name in enumerate(MONTHS, start=1) if name.lower().startswith(token))
+            day = int(m["day"])
+            if not 1 <= day <= 31:
+                continue
             style = TextDate(month=form, day_first=day_first, comma=bool(m["comma"]), year_digits=len(m["year"]))
-            return style, _full_year(m["year"]), month, int(m["day"])
+            return style, _full_year(m["year"]), _month_number(m["month"]), day
     return None
 
 
@@ -130,6 +144,8 @@ def format_date(style: DateStyle, year: int, month: int, day: int) -> str:
         if style.month == "abbr_dot" and name != "May":
             name += "."
     comma = "," if style.comma else ""
+    if not style.has_day:
+        return f"{name}{comma} {y}"
     if style.day_first:
         return f"{day} {name}{comma} {y}"
     return f"{name} {day}{comma} {y}"

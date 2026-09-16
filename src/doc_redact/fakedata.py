@@ -92,19 +92,23 @@ def fake_ssn(detail=None, identity=None) -> str:
     return f"{d[:3]}-{d[3:5]}-{d[5:]}"
 
 
+def phone_digits() -> str:
+    """Ten digits obeying the NANP: an area code and an exchange that both start 2-9.
+
+    Filling a template digit by digit produces numbers like "(100) 806-3608", which no US phone can
+    be; the shape is what makes a replacement look right on the page.
+    """
+    return (f"{random.randint(2, 9)}{random.randint(0, 99):02d}"
+            f"{random.randint(2, 9)}{random.randint(0, 99):02d}{random.randint(0, 9999):04d}")
+
+
 def fake_phone(detail=None, identity=None) -> str:
-    if identity is not None:
-        d = identity.digits  # 10 digits
-        if isinstance(detail, st.DigitTemplate):
-            n = len(re.findall(r"\d", detail.template))
-            return _pour_digits(detail.template, d[-7:] if n == 7 else ("1" + d if n == 11 else d))
-        return f"({d[:3]}) {d[3:6]}-{d[6:]}"
+    d = identity.digits if identity is not None else phone_digits()
     if isinstance(detail, st.DigitTemplate):
-        eleven = len(re.findall(r"\d", detail.template)) == 11
-        return _fill_digits(detail.template, keep_leading_one=eleven, first_nonzero=True)
-    area = "".join(str(random.randint(1, 9)) for _ in range(3))
-    area = f"{area}-" if random.randint(0, 2) == 0 else f"({area}) "
-    return f"{area}{random.randint(0, 999):03d}-{random.randint(0, 9999):04d}"
+        n = len(re.findall(r"\d", detail.template))
+        return _pour_digits(detail.template, d[-7:] if n == 7 else ("1" + d if n == 11 else d))
+    area = f"{d[:3]}-" if random.randint(0, 2) == 0 else f"({d[:3]}) "
+    return f"{area}{d[3:6]}-{d[6:]}"
 
 
 def fake_other_id(detail=None, identity=None) -> str:

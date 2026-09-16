@@ -56,6 +56,22 @@ def test_street_names_do_not_repeat_across_a_corpus_worth_of_addresses():
     assert len(set(names)) > 1500
 
 
+def test_phone_numbers_obey_the_nanp_even_when_filling_a_template():
+    """An area code or exchange starting 0 or 1 belongs to no US phone and reads wrong on the page."""
+    from doc_redact.style import DigitTemplate
+    fakedata.seed(8)
+    texts = [fakedata.fake_phone() for _ in range(200)]
+    texts += [fakedata.fake_phone(DigitTemplate("(926) 323-3350")) for _ in range(200)]
+    texts += [fakedata.fake_phone(DigitTemplate("1 (202) 555-0100")) for _ in range(100)]
+    for text in texts:
+        digits = re.sub(r"\D", "", text)
+        area, exchange = (digits[1:4], digits[4:7]) if len(digits) == 11 else (digits[:3], digits[3:6])
+        assert area[0] not in "01", text
+        assert exchange[0] not in "01", text
+    seven = [fakedata.fake_phone(DigitTemplate("555-0100")) for _ in range(50)]
+    assert all(re.sub(r"\D", "", t)[0] not in "01" for t in seven)
+
+
 def test_other_id_is_a_digit_string_and_keeps_a_numeric_original_layout():
     from doc_redact import style
     fakedata.seed(6)
