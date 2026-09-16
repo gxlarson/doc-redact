@@ -96,14 +96,17 @@ def redact_document(image: Image.Image, doc: Document, page_ocr: dict | None, op
     return image
 
 
-def output_path(out_dir: Path, dataset: Dataset, doc: Document, image_format: str) -> Path:
-    """Where a redacted page is written; ``image_format`` "same" keeps the source's own extension."""
-    name = dataset.output_name(doc)
+def output_paths(out_dir: Path, dataset: Dataset, doc: Document, image_format: str) -> list[Path]:
+    """Where a redacted page is written. "same" keeps the source's own extension; "both" writes the
+    page twice from one render, as a lossless PNG and a compact JPEG of identical pixels."""
+    stem = Path(dataset.output_name(doc)).stem
     if image_format == "png":
-        name = Path(name).stem + ".png"
-    elif image_format == "jpeg":
-        name = Path(name).stem + ".jpg"
-    return out_dir / name
+        return [out_dir / f"{stem}.png"]
+    if image_format == "jpeg":
+        return [out_dir / f"{stem}.jpg"]
+    if image_format == "both":
+        return [out_dir / "png" / f"{stem}.png", out_dir / "jpg" / f"{stem}.jpg"]
+    return [out_dir / dataset.output_name(doc)]
 
 
 def save_page(image: Image.Image, path: Path, source_mode: str, jpeg_quality: int) -> None:
@@ -116,6 +119,7 @@ def save_page(image: Image.Image, path: Path, source_mode: str, jpeg_quality: in
     """
     if source_mode in ("L", "1") and image.mode != "L":
         image = image.convert("L")
+    path.parent.mkdir(parents=True, exist_ok=True)
     if path.suffix.lower() in (".jpg", ".jpeg"):
         # subsampling=0 keeps full chroma resolution on the pages that really are colour.
         image.save(path, quality=jpeg_quality, subsampling=0)
@@ -147,7 +151,8 @@ def run(
             image = fetcher.image(image_url)
             page_ocr = fetcher.json(dataset.ocr_url(doc)) if options.mode is Mode.PSEUDO else None
             redacted = redact_document(image, doc, page_ocr, options)
-            save_page(redacted, output_path(out_dir, dataset, doc, image_format), source_mode, jpeg_quality)
+            for path in output_paths(out_dir, dataset, doc, image_format):
+                save_page(redacted, path, source_mode, jpeg_quality)
         except Exception as exc:  # keep going; one bad page shouldn't sink a batch
             log.error("failed on %s: %r", doc.stem, exc, exc_info=log.isEnabledFor(logging.DEBUG))
             failures.append((doc, exc))

@@ -11,10 +11,15 @@ DOC = Document(url="https://host/rvlcdip/train_letter_abc.jpg", annotations=[])
 DATASET = DATASETS["rvlcdip"]
 
 
+def _names(tmp_path, image_format):
+    return [str(p.relative_to(tmp_path)).replace("\\", "/") for p in pipeline.output_paths(tmp_path, DATASET, DOC, image_format)]
+
+
 def test_output_path_follows_the_requested_format(tmp_path):
-    assert pipeline.output_path(tmp_path, DATASET, DOC, "same").name == "train_letter_abc.jpg"
-    assert pipeline.output_path(tmp_path, DATASET, DOC, "png").name == "train_letter_abc.png"
-    assert pipeline.output_path(tmp_path, DATASET, DOC, "jpeg").name == "train_letter_abc.jpg"
+    assert _names(tmp_path, "same") == ["train_letter_abc.jpg"]
+    assert _names(tmp_path, "png") == ["train_letter_abc.png"]
+    assert _names(tmp_path, "jpeg") == ["train_letter_abc.jpg"]
+    assert _names(tmp_path, "both") == ["png/train_letter_abc.png", "jpg/train_letter_abc.jpg"]
 
 
 def test_a_grayscale_scan_is_saved_grayscale(tmp_path):
@@ -40,6 +45,18 @@ def test_a_colour_scan_stays_colour(tmp_path):
     with Image.open(out) as saved:
         assert saved.mode == "RGB"
         assert saved.getpixel((5, 5))[0] > saved.getpixel((5, 5))[1]
+
+
+def test_both_formats_hold_the_same_page(tmp_path):
+    rng = np.random.default_rng(1)
+    page = Image.fromarray(rng.integers(0, 255, (50, 40), dtype=np.uint8), mode="L").convert("RGB")
+    png, jpg = pipeline.output_paths(tmp_path, DATASET, DOC, "both")
+    for path in (png, jpg):
+        pipeline.save_page(page, path, source_mode="L", jpeg_quality=95)
+    assert png.exists() and jpg.exists()
+    a, b = (np.asarray(Image.open(p).convert("L")).astype(int) for p in (png, jpg))
+    assert a.shape == b.shape
+    assert np.abs(a - b).mean() < 6  # the same render, one lossless and one JPEG-encoded
 
 
 @pytest.mark.parametrize("suffix", [".jpg", ".png"])

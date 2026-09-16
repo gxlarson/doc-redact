@@ -121,6 +121,13 @@ If the redacted pages will be compared against unmodified originals, or used to 
 evaluate a model, prefer `--format png`: re-encoding artifacts spread across the page
 are a difference between the two sets that has nothing to do with redaction.
 
+`--format both` writes each page twice from the same render — a lossless PNG under
+`png/` and a JPEG under `jpg/`, same pixels, same file name. The page is fetched,
+matched and drawn once, so the second copy costs only its encode (a few percent of the
+run) and the two are guaranteed to hold the same replacements. Useful when you want an
+archival copy and a compact one for distribution, without redacting twice and getting two
+different sets of fake people.
+
 Options for `redact`:
 
 | Option | Meaning |
@@ -139,7 +146,7 @@ Options for `redact`:
 | `--[no-]paper-fill` | fill erased boxes with paper sampled from around them (color, noise, specks) instead of white (default on) |
 | `--[no-]keep-lines` | detect horizontal rules crossing a box and redraw them synthetically after erasing (default on) |
 | `--[no-]handwriting` | replace handwritten text with handwriting, one face per document (default on) |
-| `--format` | `same` (default, keeps each source's extension), `png` or `jpeg` |
+| `--format` | `same` (default, keeps each source's extension), `png`, `jpeg`, or `both` (one render written to `png/` and `jpg/`) |
 | `--jpeg-quality N` | quality for JPEG output (default 95) |
 | `--only ID` | process only these documents (repeatable) |
 | `--text CATEGORY=TEXT` | fixed replacement text for a category |

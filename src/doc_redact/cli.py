@@ -36,9 +36,10 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--mode", choices=[m.value for m in pipeline.Mode], default="pseudo")
     r.add_argument("-o", "--out", type=Path, required=True, help="output directory")
     r.add_argument(
-        "--format", dest="image_format", choices=["same", "png", "jpeg"], default="same",
+        "--format", dest="image_format", choices=["same", "png", "jpeg", "both"], default="same",
         help="output image format; 'same' (default) keeps each source's extension. png avoids re-encoding "
-             "artifacts on pages that were already JPEG, at a few times the file size",
+             "artifacts on pages that were already JPEG, at a few times the file size. 'both' writes each "
+             "page once as PNG and once as JPEG, from the same render, into png/ and jpg/ subdirectories",
     )
     r.add_argument(
         "--jpeg-quality", type=int, default=95, metavar="N",
