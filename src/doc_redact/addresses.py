@@ -100,10 +100,12 @@ class AddressBook:
         self._cities.append((real, real_state, fake_city, fake_state))
         return fake_city, fake_state
 
-    def zip(self, real: str) -> str:
+    def zip(self, real: str, state: str | None = None) -> str:
+        """The fake ZIP for a real one, drawn from ``state``'s range when this address has a fake state."""
         key = real[:5]
         if key not in self._zips:
-            self._zips[key] = f"{random.randint(10000, 99999)}{random.randint(0, 9999):04d}"
+            five = fakedata.zip_for_state(state) if state else f"{random.randint(1000, 99999):05d}"
+            self._zips[key] = f"{five}{random.randint(0, 9999):04d}"
         return self._zips[key]
 
 
@@ -157,6 +159,6 @@ def link(annotations: list[Annotation], words: list[Word]) -> dict[Annotation, F
                 city_for_zip[zip5] = (city, state)
         elif address.state:
             state = book.state(address.state)
-        zip_code = book.zip(address.zip) if address.zip else None
+        zip_code = book.zip(address.zip, state) if address.zip else None
         linked[annotation] = FakeAddress(street=street, city=city, state=state, zip=zip_code)
     return linked

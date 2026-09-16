@@ -86,7 +86,7 @@ def _same(category: str, a, b) -> bool:
 
 def _new_value(category: str):
     if category == "ssn":
-        return FakeDigits(re.sub(r"\D", "", fakedata._faker.ssn()))
+        return FakeDigits(fakedata.ssn_digits())
     if category == "home_phone":
         return FakeDigits(f"{random.randint(2, 9)}{random.randint(0, 99):02d}{random.randint(2, 9)}"
                           f"{random.randint(0, 999999):06d}")

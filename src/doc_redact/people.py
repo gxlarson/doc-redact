@@ -111,6 +111,28 @@ def link(annotations: list[Annotation], words: list[Word]) -> dict[Annotation, P
             if same_person(parsed[i][1], parsed[j][1]):
                 parent[find(i)] = find(j)
 
+    def group_genders(root: int) -> set[str]:
+        titles = [t.text for k in range(len(parsed)) if find(k) == root
+                  for t in parsed[k][1].style.tokens if t.kind == "title"]
+        titles += [parsed[k][2] for k in range(len(parsed)) if find(k) == root and parsed[k][2]]
+        return {style.title_gender(t) for t in titles} - {None}
+
+    # Second pass: a surname without a first name ("Dear Mr. Surname") joins the one person on the page
+    # with that surname, when the title's gender doesn't contradict them. With several candidates
+    # (a family), it stays separate.
+    for i, (_, name, title_outside) in enumerate(parsed):
+        if name.first_letter or not name.last:
+            continue
+        own_titles = [t.text for t in name.style.tokens if t.kind == "title"] + ([title_outside] if title_outside else [])
+        own_gender = {style.title_gender(t) for t in own_titles} - {None}
+        candidates = {
+            find(j) for j, (_, other, _) in enumerate(parsed)
+            if j != i and other.first_letter and other.last and similar_names(other.last, name.last)
+            and not (own_gender and group_genders(find(j)) and own_gender != group_genders(find(j)))
+        }
+        if len(candidates) == 1:
+            parent[find(i)] = candidates.pop()
+
     groups: dict[int, list[int]] = {}
     for i in range(len(parsed)):
         groups.setdefault(find(i), []).append(i)

@@ -11,7 +11,7 @@ from typing import Iterator
 import numpy as np
 from PIL import Image
 
-from doc_redact import addresses, baseline, checks, ocr, people, render, typeface, values
+from doc_redact import addresses, baseline, checks, geometry, ocr, people, render, typeface, values
 from doc_redact.annotations import Document
 from doc_redact.datasets import Dataset
 from doc_redact import fakedata
@@ -70,12 +70,29 @@ def redact_document(image: Image.Image, doc: Document, page_ocr: dict | None, op
         page.handwriting_face = render.document_handwriting_face(words, handwriting_matcher)
         if page.handwriting_face is not None:
             log.debug("%s: handwriting typeface for the document: %s", doc.stem, page.handwriting_face.name)
+    # Boxes that get replacement text. Near-duplicates (the same field annotated twice) are drawn once.
+    writable = []
     for annotation in doc.annotations:
-        if not has_generator(annotation.category) and annotation.category not in options.text.overrides:
+        if has_generator(annotation.category) or annotation.category in options.text.overrides:
+            writable.append(annotation)
+        else:
             log.warning("%s: no generator for %r; region left blank", doc.stem, annotation.category)
-            image = render.erase(image, annotation.bbox, page, options.text)
-            continue
-        image = render.pseudonymize(image, annotation, page, options.text)
+    duplicates = geometry.near_duplicates([a.bbox for a in writable], [canonical(a.category) for a in writable])
+    writable = [a for i, a in enumerate(writable) if i not in duplicates]
+    if duplicates:
+        log.debug("%s: %d near-duplicate box(es) erased but not drawn twice", doc.stem, len(duplicates))
+    regions = geometry.exclusive_regions([a.bbox for a in writable])
+    squeezed = sum(r.is_cut for r in regions)
+    if squeezed:
+        log.debug("%s: %d box(es) share overlaps with neighbors", doc.stem, squeezed)
+
+    # Plan everything on the untouched page, erase every box, then draw: an erase can never cut into a
+    # replacement already drawn for an overlapping box, and each replacement stays in its own region.
+    plans = [render.plan_text(a, page, options.text, region) for a, region in zip(writable, regions)]
+    for annotation in doc.annotations:
+        image = render.erase(image, geometry.erase_extent(annotation.bbox, words), page, options.text)
+    for plan in plans:
+        image = render.draw_plan(image, plan)
     return image
 
 

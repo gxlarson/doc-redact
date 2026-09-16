@@ -62,6 +62,7 @@ class Placement:
     angle_deg: float = 0.0
     baseline_y: float | None = None  # y of the first line's baseline at the text's left edge
     handwritten: bool = False
+    clip: tuple[float, float, float, float] | None = None  # ink limits when neighbors overlap this box
 
 
 @dataclass
@@ -181,7 +182,12 @@ def snap_to_rules(
     return None
 
 
-def plan_text(annotation: Annotation, page: Page, settings: TextSettings) -> Placement:
+REGION_MARGIN = 0.35  # how far (x box height) ink may pass an uncut edge of a squeezed box
+
+
+def plan_text(
+    annotation: Annotation, page: Page, settings: TextSettings, region: geometry.Region | None = None
+) -> Placement:
     """Decide the replacement text, its typeface, size, weight and where to draw it."""
     bbox, category = annotation.bbox, annotation.category
     page_words = page.words
@@ -215,11 +221,13 @@ def plan_text(annotation: Annotation, page: Page, settings: TextSettings) -> Pla
     else:
         single_line = True
 
+    # The erase also covers the ends of this box's words that stick out past its sides (pipeline.redact_document).
+    erased = geometry.erase_extent(bbox, page_words)
     detected = None
     if settings.match_style and original:
         style_source = original
-        if ink and ink.right > bbox.right + 1:
-            # Trailing punctuation past the box edge ("1958;") survives the white-out; don't draw it twice.
+        if ink and ink.right > erased.right + 1:
+            # Trailing punctuation too far past the box edge ("1958;") survives the erase; don't draw it twice.
             style_source = original.rstrip(",;:.")
         detected = style.detect(category, style_source)
         if canonical(category) == "name" and isinstance(detected.detail, style.NameStyle):
@@ -251,8 +259,16 @@ def plan_text(annotation: Annotation, page: Page, settings: TextSettings) -> Pla
     # The outline grows glyphs by half its thickness on every side.
     grow = layout.stroke_px(stroke) / 2
 
+    # A box squeezed by overlapping neighbors keeps its replacement inside its own share of the overlap.
+    limits = None
+    if region is not None and region.is_cut:
+        limits = region.limits(margin_x=REGION_MARGIN * bbox.height, margin_y=REGION_MARGIN * bbox.height)
+
     x = (ink.left if ink else bbox.left + TEXT_INSET) + grow
-    max_width = max(1.0, bbox.right - x - grow)
+    if limits:
+        x = max(x, limits[0] + grow)
+    right_edge = min(erased.right, limits[2]) if limits else erased.right
+    max_width = max(1.0, right_edge - x - grow)
     if settings.fit_width and category not in settings.overrides:
         target = (ink.width if ink else 0.8 * max_width) - 2 * grow
         text = layout.choose_text(generate, font, max_width, target, spacing=spacing)
@@ -261,6 +277,13 @@ def plan_text(annotation: Annotation, page: Page, settings: TextSettings) -> Pla
     if settings.fit_width:
         size = layout.shrink_to_fit(font_spec, size, text, max_width, spacing)
         font = layout.load_font(font_spec, size)
+    if limits:
+        available = limits[3] - limits[1]
+        _, top, _, bottom = layout.text_bbox(font, text, spacing)
+        while bottom - top + 2 * grow > available and size > layout.MIN_FONT_SIZE:
+            size = max(layout.MIN_FONT_SIZE, min(size - 1, int(size * available / (bottom - top + 2 * grow))))
+            font = layout.load_font(font_spec, size)
+            _, top, _, bottom = layout.text_bbox(font, text, spacing)
 
     # Start the ink, not the drawing origin, where the original ink started: swashes and
     # side bearings otherwise push text left over labels like "SSN #".
@@ -286,19 +309,41 @@ def plan_text(annotation: Annotation, page: Page, settings: TextSettings) -> Pla
         y = ink.top + grow - ink_top  # no measurable ink: line glyph tops up with the OCR box
     else:
         y = bbox.top + (bbox.height - (ink_bottom - ink_top)) / 2 - ink_top
+    if limits:
+        # Keep the ink between the cut edges: move it up or down rather than letting it reach a neighbor.
+        shift = 0.0
+        if y + ink_bottom + grow > limits[3]:
+            shift = limits[3] - (y + ink_bottom + grow)
+        if y + ink_top - grow + shift < limits[1]:
+            shift = limits[1] - (y + ink_top - grow)
+        y += shift
+        baseline_y = baseline_y + shift if baseline_y is not None else None
     return Placement(
         text=text, font=font_spec, font_size=size, xy=(x, y), spacing=spacing, original=original, stroke=stroke,
-        angle_deg=angle, baseline_y=baseline_y, handwritten=handwritten,
+        angle_deg=angle, baseline_y=baseline_y, handwritten=handwritten, clip=limits,
     )
 
 
-def pseudonymize(image: Image.Image, annotation: Annotation, page: Page, settings: TextSettings) -> Image.Image:
-    """White out the region and draw replacement text into it with scan-like degradation."""
-    plan = plan_text(annotation, page, settings)
-    image = erase(image, annotation.bbox, page, settings)
+def draw_plan(image: Image.Image, plan: Placement) -> Image.Image:
+    """Draw a planned replacement onto an (already erased) image, degraded to look scanned."""
     layer = Image.new("RGB", image.size, color="white")
     pivot = (plan.xy[0], plan.baseline_y) if plan.baseline_y is not None else None
     draw = handwriting.draw if plan.handwritten else layout.draw_text
     draw(layer, plan.xy, plan.text, plan.font, plan.font_size, plan.stroke, plan.spacing,
          angle_deg=plan.angle_deg, pivot=pivot)
+    if plan.clip is not None:
+        # Nothing of this replacement may land in a neighboring box's share of an overlap.
+        left, top, right, bottom = (int(round(v)) for v in plan.clip)
+        pixels = np.array(layer)
+        keep = np.zeros(pixels.shape[:2], bool)
+        keep[max(0, top):max(0, bottom + 1), max(0, left):max(0, right + 1)] = True
+        pixels[~keep] = 255
+        layer = Image.fromarray(pixels)
     return augment.overlay(image, augment.degrade(layer))
+
+
+def pseudonymize(image: Image.Image, annotation: Annotation, page: Page, settings: TextSettings) -> Image.Image:
+    """White out one box and draw its replacement (for a single box; pipeline.redact_document handles pages)."""
+    plan = plan_text(annotation, page, settings)
+    image = erase(image, geometry.erase_extent(annotation.bbox, page.words), page, settings)
+    return draw_plan(image, plan)

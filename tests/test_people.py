@@ -76,6 +76,39 @@ def test_repeated_name_gets_one_replacement_in_each_format():
     assert "Quimby" not in first_box + second_box
 
 
+def test_salutation_with_surname_only_parses_and_links_to_the_one_matching_person():
+    parsed = style.parse_name("Dear Mr. Quimby:")
+    assert [t.kind for t in parsed.style.tokens] == ["salutation", "title", "last"]
+    assert parsed.last == "Quimby" and parsed.first_letter is None
+
+    words, annotations = _page_with_names([
+        ("Quimby, Ansel R.", 100, 100), ("Ansel R. Quimby", 100, 300), ("Dear Mr. Quimby:", 100, 500),
+    ])
+    fakedata.seed(1)
+    identities = people.link(annotations, words)
+    person = identities[annotations[0]]
+    assert identities[annotations[1]] is person and identities[annotations[2]] is person
+    assert person.gender == "male"  # from the salutation's title
+
+    page = render.Page(words=words, identities=identities)
+    settings = render.TextSettings(font="LiberationSerif-Regular.ttf", font_size=20, auto_font_size=False, fit_width=False)
+    assert render.plan_text(annotations[2], page, settings).text == f"Dear Mr. {person.last}:"
+
+
+def test_surname_only_stays_separate_when_it_is_ambiguous_or_contradicts_gender():
+    words, annotations = _page_with_names([
+        ("Ansel Quimby", 100, 100), ("Bertha Quimby", 100, 300), ("Mr. Quimby", 100, 500),
+    ])
+    fakedata.seed(1)
+    identities = people.link(annotations, words)
+    assert len({id(p) for p in identities.values()}) == 3  # two Quimbys: can't tell which one
+    assert len({p.last for p in identities.values()}) == 1  # but the family surname is shared
+
+    words, annotations = _page_with_names([("Mrs. Delia Wendover", 100, 100), ("Mr. Wendover", 100, 300)])
+    identities = people.link(annotations, words)
+    assert identities[annotations[0]] is not identities[annotations[1]]
+
+
 def test_title_left_of_the_box_sets_the_linked_persons_gender():
     words, annotations = _page_with_names([("Ansel Quimby", 150, 100), ("Quimby, Ansel", 150, 300)])
     words.append(Word("Mrs.", BBox(100, 300, 40, 20)))

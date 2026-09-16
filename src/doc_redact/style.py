@@ -405,14 +405,15 @@ def parse_address(text: str) -> ParsedAddress | None:
 # --- personal names -------------------------------------------------------
 
 TITLES = {"mr", "mrs", "ms", "miss", "dr", "prof", "rev"}
+SALUTATIONS = {"dear", "to", "attn", "attention", "hello", "hi"}
 FEMALE_TITLES = {"mrs", "ms", "miss"}
 SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "md", "phd"}
 
 
 @dataclass(frozen=True)
 class NameToken:
-    kind: str  # "title", "first", "middle", "last", "initial", "suffix" or "literal"
-    text: str = ""  # kept verbatim for titles and literals
+    kind: str  # "salutation", "title", "first", "middle", "last", "initial", "suffix" or "literal"
+    text: str = ""  # kept verbatim for salutations and titles; literals keep only their punctuation
     dot: bool = False  # initials and suffixes written with a period
     hyphenated: bool = False  # "Smith-Jones"
     upper: bool = False  # this word written in capitals ("HARTLEY, Jonas")
@@ -457,17 +458,23 @@ def detect_name(text: str) -> NameStyle | None:
 
 
 def parse_name(text: str) -> ParsedName | None:
-    t = " ".join(text.split())
+    t = " ".join(text.split()).rstrip(",;:")
     if not t or not re.search(r"[A-Za-z]", t) or re.search(r"\d", t):
         return None
-    last_first = bool(re.match(r"^[A-Za-z][\w'.-]*,\s", t))
-    raw = [tok for tok in re.split(r"[\s,]+", t) if tok]
+    # "Dear Mr. Surname:" -- leading salutations are kept as they are and don't count as name parts.
+    raw = [tok.rstrip(":;") for tok in re.split(r"[\s,]+", t) if tok.rstrip(":;")]
+    lead = 0
+    while lead < len(raw) - 1 and raw[lead].rstrip(".").lower() in SALUTATIONS:
+        lead += 1
+    last_first = bool(re.match(r"^[A-Za-z][\w'.-]*,\s", " ".join(t.split()[lead:])))
 
     kinds: list[NameToken] = []
     words: list[int] = []  # positions of full name words, assigned first/middle/last below
     for i, tok in enumerate(raw):
         bare = tok.rstrip(".").lower()
-        if bare in TITLES and i == 0:
+        if i < lead:
+            kinds.append(NameToken("salutation", text=tok))
+        elif bare in TITLES and i == lead:
             kinds.append(NameToken("title", text=tok))
         elif bare in SUFFIXES and i == len(raw) - 1 and i > 0:
             kinds.append(NameToken("suffix", dot=tok.endswith(".")))
@@ -567,6 +574,11 @@ def detect(category: str, original: str) -> Style:
     text = "\n".join(" ".join(line.split()) for line in original.strip().splitlines() if line.strip())
     case = detect_case(text)
     variants = _punctuation_variants(text)
+    if canonical(category) == "name":
+        # The name parser tolerates trailing ",;:" itself, so try the stripped text first to keep it as a suffix
+        # ("Dear Mr. Surname:"); a trailing "." stays part of the name ("Jonas P.", "Jr.").
+        variants = [v for v in variants if v[1] and not v[1].startswith(".")] + [
+            v for v in variants if not v[1] or v[1].startswith(".")]
     detector = detector_for(category)
     if detector:
         for core, suffix in variants:

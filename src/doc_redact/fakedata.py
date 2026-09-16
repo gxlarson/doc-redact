@@ -10,13 +10,14 @@ import calendar
 import random
 import re
 from dataclasses import dataclass
+from functools import cache
 from typing import Callable
 
 from faker import Faker
 
 from doc_redact import style as st
 from doc_redact.categories import canonical
-from doc_redact.resources import state_abbreviations, us_cities
+from doc_redact.resources import US_STATES, ZIP3_RANGES, state_abbreviations, us_cities
 
 _faker = Faker()
 
@@ -40,13 +41,27 @@ def _fill_digits(template: str, keep_leading_one: bool = False, first_nonzero: b
     for ch in template:
         if ch.isdigit():
             if first and keep_leading_one and ch == "1":
-                out.append(ch)
+                out.append(ch)  # a long-distance "1": the area code that follows still leads the number
             else:
                 out.append(str(random.randint(1 if first and first_nonzero else 0, 9)))
-            first = False
+                first = False
         else:
             out.append(ch)
     return "".join(out)
+
+
+def ssn_digits() -> str:
+    """Nine digits in the shape the SSA issues: area 001-899 (not 666), group 01-99, serial 0001-9999.
+
+    These are ordinary-looking numbers, which is the point: the never-issued
+    alternatives (a 9xx area, a 00 group, a 0000 serial) each put the same tell
+    on every page of a corpus. The cost is that a generated number can coincide
+    with a real one, so the value is meaningless but not provably unassigned.
+    """
+    area = random.randint(1, 899)
+    while area == 666:
+        area = random.randint(1, 899)
+    return f"{area:03d}{random.randint(1, 99):02d}{random.randint(1, 9999):04d}"
 
 
 def _pour_digits(template: str, digits: str) -> str:
@@ -68,12 +83,13 @@ def _shared(generator):
 
 
 def fake_ssn(detail=None, identity=None) -> str:
-    if identity is not None:
-        d = identity.digits
-        return _pour_digits(detail.template, d) if isinstance(detail, st.DigitTemplate) else f"{d[:3]}-{d[3:5]}-{d[5:]}"
+    d = identity.digits if identity is not None else ssn_digits()
     if isinstance(detail, st.DigitTemplate):
+        # Partial fields ("last 4") have fewer than nine digits; fill those rather than truncating an SSN.
+        if len(re.findall(r"\d", detail.template)) == len(d):
+            return _pour_digits(detail.template, d)
         return _fill_digits(detail.template, first_nonzero=True)
-    return _faker.ssn()
+    return f"{d[:3]}-{d[3:5]}-{d[5:]}"
 
 
 def fake_phone(detail=None, identity=None) -> str:
@@ -160,6 +176,70 @@ def fake_marital_status(detail=None, identity=None) -> str:
     return family.status
 
 
+# Street and city names are drawn from real US naming, not invented: Faker's cities ("Wallacemouth")
+# and streets ("Kertzmann Fords") read as obviously fake on a scanned form.
+STREET_SUFFIXES = ["St", "St.", "Street", "Ave", "Ave.", "Avenue", "Rd", "Rd.", "Road", "Dr", "Dr.", "Drive",
+                   "Ln", "Lane", "Blvd", "Blvd.", "Boulevard", "Ct", "Court", "Pl", "Place", "Way", "Circle",
+                   "Terrace", "Parkway", "Highway", "Trail"]
+STREET_WORDS = [
+    "Maple", "Oak", "Elm", "Cedar", "Pine", "Walnut", "Chestnut", "Willow", "Spruce", "Birch", "Poplar",
+    "Laurel", "Magnolia", "Hickory", "Sycamore", "Dogwood", "Juniper", "Aspen", "Cypress",
+    "Washington", "Lincoln", "Jefferson", "Jackson", "Madison", "Monroe", "Adams", "Franklin", "Grant",
+    "Harrison", "Wilson", "Taylor", "Garfield", "Hayes", "Cleveland", "Kennedy", "Roosevelt",
+    "Hill", "Lake", "River", "Valley", "Ridge", "Meadow", "Forest", "Spring", "Summit", "Highland",
+    "Fairview", "Riverside", "Lakeview", "Sunset", "Woodland", "Orchard", "Prairie", "Brook", "Creek",
+    "Church", "School", "Market", "Union", "Center", "Park", "Main", "Broad", "Liberty", "Mill",
+    "Depot", "College", "Bridge", "Garden", "Grove", "Clark", "Morgan", "Bennett", "Sherman", "Bradley",
+]
+ORDINALS = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th", "11th", "12th",
+            "14th", "17th", "21st", "23rd", "34th", "42nd", "56th", "63rd", "72nd", "81st", "96th"]
+DIRECTIONALS = ["N", "S", "E", "W", "N.", "S.", "E.", "W.", "North", "South", "East", "West"]
+UNITS = ["Apt {n}", "Apt. {n}", "# {n}", "Unit {n}", "Suite {n}", "Rm {n}"]
+
+
+@cache
+def _cities_up_to(max_length: int) -> tuple[str, ...]:
+    return tuple(c for c in us_cities() if len(c) <= max_length) or us_cities()
+
+
+def _real_city(max_length: int) -> str:
+    """A real US city name, short enough for the field."""
+    return random.choice(_cities_up_to(max_length))
+
+
+@cache
+def _place_street_names() -> tuple[str, ...]:
+    """Single-word real place names, which US streets are commonly named after ("Bristol Rd")."""
+    return tuple(c for c in us_cities() if " " not in c and 4 <= len(c) <= 11)
+
+
+def _street_name() -> str:
+    """One street name. The pool is wide on purpose: a corpus has thousands of addresses in it,
+    and a short list would put the same few names on page after page."""
+    r = random.random()
+    if r < 0.25:
+        return random.choice(STREET_WORDS)  # trees, presidents, features: the classic names
+    if r < 0.60:
+        return _faker.last_name()  # surnames are the other classic source ("Bennett Ave")
+    if r < 0.92:
+        # Place names widen the pool; a few read oddly as a street, so they stay a minority.
+        return random.choice(_place_street_names())
+    return random.choice(ORDINALS)
+
+
+def _street_line() -> str:
+    """A street line in common US form: number, optional direction, name, suffix, optional unit."""
+    number = random.choice([random.randint(1, 99), random.randint(100, 999), random.randint(1000, 9999)])
+    name = _street_name()
+    parts = [str(number)]
+    if random.randint(0, 5) == 0:
+        parts.append(random.choice(DIRECTIONALS))
+    parts += [name, random.choice(STREET_SUFFIXES)]
+    if random.randint(0, 9) == 0:
+        parts.append(random.choice(UNITS).format(n=random.randint(1, 40)))
+    return " ".join(parts)
+
+
 def fake_address(detail=None, max_line_length: int = 25, identity=None) -> str:
     """US address: "street\\ncity, ST 12345", or just the street or city line.
 
@@ -171,18 +251,15 @@ def fake_address(detail=None, max_line_length: int = 25, identity=None) -> str:
 
     street = identity.street if identity and identity.street else None
     while street is None or len(street) > max_line_length:
-        street = _faker.street_address()
+        street = _street_line()
     if detail.part == "street":
         return street
 
     city = identity.city if identity and identity.city else fake_city()
-    if identity and identity.state:
-        state = st.format_state(identity.state, detail.state or "postal")
-    else:
-        state = _state(detail.state or "postal")
-    city_line = f"{city}, {state}"
+    code = identity.state if identity and identity.state else _state_code(detail.state or "postal")
+    city_line = f"{city}, {st.format_state(code, detail.state or 'postal')}"
     if detail.has_zip:
-        city_line += f" {identity.zip[:5] if identity and identity.zip else _faker.zipcode()}"
+        city_line += f" {identity.zip[:5] if identity and identity.zip else zip_for_state(code)}"
     if detail.part == "city":
         return city_line
     return f"{street}\n{city_line}"
@@ -198,17 +275,34 @@ def fake_date(detail=None, identity=None) -> str:
     return st.format_date(style, year, month, day)
 
 
+def random_state_code() -> str:
+    """One of the 50 states, as a postal code (Faker's state_abbr can return territories)."""
+    return random.choice(sorted(US_STATES))
+
+
+def zip_for_state(code: str) -> str:
+    """A ZIP from the state's own range, so the city line doesn't read wrong to a local."""
+    ranges = ZIP3_RANGES.get(code)
+    if not ranges:
+        return f"{random.randint(1000, 99999):05d}"
+    lo, hi = random.choice(ranges)
+    return f"{random.randint(lo, hi):03d}{random.randint(0, 99):02d}"
+
+
+@cache
+def _codes_for_form(form: str) -> tuple[str, ...]:
+    """States that read back as ``form``. A traditional abbreviation of dotted initials ("N.H.")
+    is indistinguishable from the postal_dotted style, so those states sit out that form."""
+    codes = tuple(c for c in sorted(US_STATES) if st.classify_state(st.format_state(c, form)) == form)
+    return codes or tuple(sorted(US_STATES))
+
+
+def _state_code(form: str) -> str:
+    return random.choice(_codes_for_form(form))
+
+
 def _state(form: str) -> str:
-    if form == "abbrev":
-        return random.choice(state_abbreviations())
-    if form == "full":
-        return _faker.state()
-    postal = _faker.state_abbr(include_territories=False)
-    if form == "title_dot":
-        return postal.title() + "."
-    if form == "postal_dotted":
-        return f"{postal[0]}.{postal[1]}."
-    return postal
+    return st.format_state(_state_code(form), form)
 
 
 def fake_birthplace(detail=None, max_city_length: int = 15, identity=None) -> str:
@@ -217,10 +311,7 @@ def fake_birthplace(detail=None, max_city_length: int = 15, identity=None) -> st
         if style.state == "none":
             return identity.city
         return f"{identity.city}, {st.format_state(identity.state, style.state)}"
-    city_source = _faker.city if random.randint(0, 3) == 0 else (lambda: random.choice(us_cities()))
-    city = city_source()
-    while len(city) > max_city_length:
-        city = city_source()
+    city = _real_city(max_city_length)
     if style.state == "none":
         return city
     return f"{city}, {_state(style.state)}"
@@ -238,12 +329,7 @@ def fake_street(detail=None, identity=None) -> str:
 def fake_city(detail=None, max_length: int = 15, identity=None) -> str:
     if identity and identity.city:
         return identity.city
-    # Mostly real city names; Faker's invented ones ("Lake Amberfurt") a third of the time.
-    city_source = _faker.city if random.randint(0, 2) == 0 else (lambda: random.choice(us_cities()))
-    city = city_source()
-    while len(city) > max_length:
-        city = city_source()
-    return city
+    return _real_city(max_length)
 
 
 def fake_state(detail=None, identity=None) -> str:
@@ -262,7 +348,7 @@ def fake_zip(detail=None, identity=None) -> str:
         return identity.zip[:5]
     if isinstance(detail, st.DigitTemplate):
         return _fill_digits(detail.template, first_nonzero=True)
-    return _faker.zipcode()
+    return zip_for_state(random_state_code())
 
 
 INITIALS = "ABCDEFGHJKLMNPRSTW"  # letters that commonly start given names
@@ -288,8 +374,8 @@ def fake_name(detail=None) -> str:
 
     parts, comma_done = [], False
     for tok in style.tokens:
-        if tok.kind == "title":
-            part = tok.text  # keeps gender agreement with the generated first name
+        if tok.kind in ("title", "salutation"):
+            part = tok.text  # "Dear", "Mr." -- not PII; titles keep gender agreement with the first name
         elif tok.kind in ("first", "middle"):
             part = (person.first if tok.kind == "first" else person.middle) if person else given()
             part = part.upper() if tok.upper else part
