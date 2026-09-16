@@ -149,11 +149,11 @@ The fallback font and size are used only when a box has no measurable OCR words 
 Categories that get replacement text (aliases after the slash): `age`,
 `birth_date`/`date_of_birth`, `birth_place`/`place_of_birth`,
 `citizenship_nationality`/`citizenship`, `city`, `home_address`/`address`,
-`home_phone`/`phone`, `marital_status`, `name`, `religion`/`religious_affiliation`,
-`ssn`/`ssn_like`, `state`, `street`, `zip`. Together they cover 96% of the annotated
-RVL-CDIP boxes.
+`home_phone`/`phone`, `marital_status`, `name`, `other_id`,
+`religion`/`religious_affiliation`, `ssn`/`ssn_like`, `state`, `street`, `zip`. Together
+they cover 96% of the annotated RVL-CDIP boxes.
 
-Any other category (`sex_gender`, `signature`, `health_status`, `other`, `other_id`) is
+Any other category (`sex_gender`, `signature`, `health_status`, `other`) is
 erased and logged — the region is filled with generated paper and any rule redrawn, but
 nothing is written back.
 

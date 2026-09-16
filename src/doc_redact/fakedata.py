@@ -107,6 +107,23 @@ def fake_phone(detail=None, identity=None) -> str:
     return f"{area}{random.randint(0, 999):03d}-{random.randint(0, 9999):04d}"
 
 
+def fake_other_id(detail=None, identity=None) -> str:
+    """Account, case, policy or licence numbers: 7-12 digits, sometimes grouped by dashes.
+
+    When the original was digits and separators, its layout is kept (see style.detect_other_id);
+    otherwise a shape is invented, since these numbers follow no common format.
+    """
+    if identity is not None:
+        return _pour_digits(detail.template, identity.digits) if isinstance(detail, st.DigitTemplate) else identity.digits
+    if isinstance(detail, st.DigitTemplate):
+        return _fill_digits(detail.template, first_nonzero=True)
+    digits = str(random.randint(1, 9)) + "".join(str(random.randint(0, 9)) for _ in range(random.randint(6, 11)))
+    if random.randint(0, 2) == 0:  # grouped: "482-91-7734", "77394-2210"
+        cut = random.randint(2, max(3, len(digits) - 3))
+        return "-".join([digits[:cut]] + ([digits[cut:cut + 2], digits[cut + 2:]] if len(digits) - cut > 4 else [digits[cut:]]))
+    return digits
+
+
 def fake_age(detail=None, identity=None) -> str:
     age = identity.digits if identity is not None else str(random.randint(29, 59))
     if isinstance(detail, st.DigitTemplate):
@@ -414,6 +431,7 @@ GENERATORS: dict[str, Callable[..., str]] = {  # keyed by canonical category (se
     "home_address": fake_address,
     "home_phone": fake_phone,
     "marital_status": fake_marital_status,
+    "other_id": fake_other_id,
     "religion": fake_religion,
     "ssn": fake_ssn,
     "street": fake_street,
@@ -443,6 +461,6 @@ def fake_text(category: str, style: st.Style | None = None) -> str:
 # Generators that accept an ``identity`` shared with other boxes on the page.
 IDENTITY_CATEGORIES = {
     "home_address", "street", "city", "state", "zip",  # addresses.link
-    "ssn", "home_phone", "birth_date", "birth_place", "age",  # values.link
+    "ssn", "home_phone", "birth_date", "birth_place", "age", "other_id",  # values.link
     "citizenship_nationality", "religion", "marital_status",
 }

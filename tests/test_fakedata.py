@@ -56,6 +56,22 @@ def test_street_names_do_not_repeat_across_a_corpus_worth_of_addresses():
     assert len(set(names)) > 1500
 
 
+def test_other_id_is_a_digit_string_and_keeps_a_numeric_original_layout():
+    from doc_redact import style
+    fakedata.seed(6)
+    for _ in range(200):
+        text = fakedata.fake_other_id()
+        assert re.fullmatch(r"\d[\d-]*\d", text)
+        assert 7 <= len(re.sub(r"\D", "", text)) <= 12
+        assert text[0] != "0" and "--" not in text
+
+    kept = fakedata.fake_other_id(style.detect_other_id("77394-2210"))
+    assert re.fullmatch(r"\d{5}-\d{4}", kept) and kept != "77394-2210"
+    # A box with letters gets no template, so the original's own letters are never redrawn.
+    assert style.detect_other_id("AB-4471") is None
+    assert re.fullmatch(r"\d[\d-]*\d", fakedata.fake_other_id(style.detect_other_id("AB-4471")))
+
+
 def test_seed_is_reproducible():
     fakedata.seed(42)
     first = [fakedata.fake_text(c) for c in sorted(fakedata.GENERATORS)]

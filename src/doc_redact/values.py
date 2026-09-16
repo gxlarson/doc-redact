@@ -26,7 +26,7 @@ from doc_redact.resources import US_STATES
 # marital_status is not here: a document's marital boxes share one fakedata.Family instead
 # (status and children are often annotated as separate boxes, e.g. "Married" and "2 children").
 TEXT_CATEGORIES = {"citizenship_nationality", "religion"}
-VALUE_CATEGORIES = {"ssn", "home_phone", "birth_date", "birth_place", "age"} | TEXT_CATEGORIES
+VALUE_CATEGORIES = {"ssn", "home_phone", "birth_date", "birth_place", "age", "other_id"} | TEXT_CATEGORIES
 
 
 @dataclass(frozen=True)
@@ -63,6 +63,8 @@ def _key(category: str, text: str):
         return digits[-7:] if len(digits) in (7, 10, 11) else None
     if category == "age":
         return digits if 1 <= len(digits) <= 3 else None
+    if category == "other_id":
+        return digits if 4 <= len(digits) <= 12 else None
     if category == "birth_date":
         parsed = style.parse_date(text.rstrip(",;:. "))
         return parsed[1:] if parsed else None
@@ -92,6 +94,8 @@ def _new_value(category: str):
                           f"{random.randint(0, 999999):06d}")
     if category == "age":
         return FakeDigits(str(random.randint(29, 59)))
+    if category == "other_id":
+        return FakeDigits(re.sub(r"\D", "", fakedata.fake_other_id()))
     if category == "birth_date":
         year, month = random.randint(1930, 1970), random.randint(1, 12)
         return FakeDate(year, month, random.randint(1, calendar.monthrange(year, month)[1]))

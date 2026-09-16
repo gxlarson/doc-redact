@@ -234,6 +234,15 @@ def detect_digits(text: str, allowed_counts: set[int]) -> DigitTemplate | None:
     return None
 
 
+def detect_other_id(text: str) -> DigitTemplate | None:
+    """Account, case, policy and licence numbers: keep the digit layout, but only when the box holds
+    nothing but digits and separators. A template containing letters would redraw the original's own
+    letters (a state or issuer prefix), and replacements never reproduce anything from the page."""
+    if re.search(r"[A-Za-z]", text):
+        return None
+    return detect_digits(text, set(range(4, 13)))
+
+
 # --- marital status / addresses -------------------------------------------
 
 @dataclass(frozen=True)
@@ -550,6 +559,7 @@ DETECTORS: dict[str, Callable[[str], object | None]] = {  # keyed by canonical c
     "state": detect_state,
     "zip": lambda t: detect_digits(t, {5, 9}),
     "name": detect_name,
+    "other_id": detect_other_id,
 }
 
 
