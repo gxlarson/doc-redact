@@ -52,6 +52,7 @@ def draw(
     angle_deg: float = 0.0,
     pivot: tuple[float, float] | None = None,
     jitter: Jitter = DEFAULT_JITTER,
+    ink: tuple[int, int, int] | None = None,
 ) -> None:
     """Like :func:`layout.draw_text`, but letter by letter with ``jitter``."""
     font = layout.load_font(spec, size)
@@ -76,5 +77,6 @@ def draw(
                 layout.draw_text(
                     layer, (base[0], base[1] - letter_ascent), ch, spec, letter_size, stroke, spacing,
                     angle_deg=line_angle + random.uniform(-jitter.rotation_deg, jitter.rotation_deg), pivot=base,
+                    ink=ink,
                 )
             cursor += advance * random.uniform(1 - jitter.spacing, 1 + jitter.spacing)

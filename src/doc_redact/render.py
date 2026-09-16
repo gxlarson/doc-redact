@@ -33,6 +33,7 @@ class TextSettings:
     match_weight: bool = True
     match_font: bool = True
     match_skew: bool = True  # tilt replacements to follow the scanned line
+    match_color: bool = True  # draw in the original ink's colour; grey ink stays black
     paper_fill: bool = True  # erase with generated paper tone and specks instead of pure white
     keep_lines: bool = True  # redraw horizontal form lines that run through erased boxes
     handwriting: bool = True  # handwritten boxes get handwriting fonts with per-letter jitter
@@ -63,6 +64,7 @@ class Placement:
     baseline_y: float | None = None  # y of the first line's baseline at the text's left edge
     handwritten: bool = False
     clip: tuple[float, float, float, float] | None = None  # ink limits when neighbors overlap this box
+    ink: tuple[int, int, int] | None = None  # stroke colour sampled from the original; None means black
 
 
 @dataclass
@@ -318,9 +320,17 @@ def plan_text(
             shift = limits[1] - (y + ink_top - grow)
         y += shift
         baseline_y = baseline_y + shift if baseline_y is not None else None
+    # Ink colour, like typeface and weight, is a property of the pen or the printer rather than of
+    # the person, so it is matched. Sampled from the words themselves when the box has any, else
+    # from the box; grey ink reads as None and draws black, which is every grayscale scan.
+    ink = None
+    if settings.match_color and page.rgb is not None and page.gray is not None:
+        ink = background.sample_ink(page.rgb, page.gray, geometry.extent(inside) or bbox)
+        if ink is not None:
+            log.debug("ink colour for box at (%d, %d): rgb%s", bbox.left, bbox.top, ink)
     return Placement(
         text=text, font=font_spec, font_size=size, xy=(x, y), spacing=spacing, original=original, stroke=stroke,
-        angle_deg=angle, baseline_y=baseline_y, handwritten=handwritten, clip=limits,
+        angle_deg=angle, baseline_y=baseline_y, handwritten=handwritten, clip=limits, ink=ink,
     )
 
 
@@ -330,7 +340,7 @@ def draw_plan(image: Image.Image, plan: Placement) -> Image.Image:
     pivot = (plan.xy[0], plan.baseline_y) if plan.baseline_y is not None else None
     draw = handwriting.draw if plan.handwritten else layout.draw_text
     draw(layer, plan.xy, plan.text, plan.font, plan.font_size, plan.stroke, plan.spacing,
-         angle_deg=plan.angle_deg, pivot=pivot)
+         angle_deg=plan.angle_deg, pivot=pivot, ink=plan.ink)
     if plan.clip is not None:
         # Nothing of this replacement may land in a neighboring box's share of an overlap.
         left, top, right, bottom = (int(round(v)) for v in plan.clip)

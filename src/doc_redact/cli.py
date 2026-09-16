@@ -59,6 +59,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="tilt replacement text to follow the slope of the scanned line",
     )
     r.add_argument(
+        "--match-color", action=argparse.BooleanOptionalAction, default=True,
+        help="draw replacements in the original ink's colour (grey ink stays black)",
+    )
+    r.add_argument(
         "--paper-fill", action=argparse.BooleanOptionalAction, default=True,
         help="erase boxes with generated paper tone and specks sampled around them, instead of pure white",
     )
@@ -148,6 +152,7 @@ def cmd_redact(args: argparse.Namespace) -> int:
             match_weight=args.match_weight,
             match_font=args.match_font and args.font is None,
             match_skew=args.match_skew,
+            match_color=args.match_color,
             handwriting=args.handwriting,
             paper_fill=args.paper_fill,
             keep_lines=args.keep_lines,

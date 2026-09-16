@@ -44,6 +44,11 @@ VARIANTS = {
                   hand="HomemadeApple-Regular.ttf", title="PERSONNEL FILE"),
     "elite": dict(label="Carlito-Regular.ttf", value="SpecialElite-Regular.ttf",
                   hand="ArchitectsDaughter-Regular.ttf", title="APPLICATION FOR EMPLOYMENT"),
+    # Colour: a form printed in dark blue, filled in on a typewriter, signed in blue ballpoint.
+    "color": dict(label="Carlito-Regular.ttf", value="CourierPrime-Regular.ttf",
+                  hand="Kalam-Regular.ttf", title="MEMBERSHIP RECORD",
+                  label_ink=(24, 56, 120), value_ink=(28, 28, 32), hand_ink=(26, 52, 160),
+                  rule_ink=(24, 56, 120)),
 }
 
 
@@ -85,7 +90,8 @@ def compose(seed: int) -> tuple[list[Field], str]:
     return fields, person
 
 
-def draw_hand_word(page: Image.Image, xy: tuple[float, float], word: str, font: str, size: int) -> BBox:
+def draw_hand_word(page: Image.Image, xy: tuple[float, float], word: str, font: str, size: int,
+                   ink: tuple[int, int, int] = (0, 0, 0)) -> BBox:
     """Write one handwritten word onto ``page`` and return the box its ink actually occupies.
 
     handwriting.draw jitters each letter's size and advance, so it runs wider than the font metrics
@@ -93,7 +99,7 @@ def draw_hand_word(page: Image.Image, xy: tuple[float, float], word: str, font: 
     redaction then erased only part of the original -- leaving its tail behind under the replacement.
     """
     layer = Image.new("RGB", page.size, "white")
-    handwriting.draw(layer, xy, word, font, size)
+    handwriting.draw(layer, xy, word, font, size, ink=ink)
     ink = np.asarray(layer.convert("L")) < 250
     if not ink.any():
         return BBox(xy[0], xy[1], layout.text_width(layout.load_font(font, size), word), size)
@@ -114,28 +120,33 @@ def draw_page(fields: list[Field], seed: int, variant: dict) -> Image.Image:
     value_font = layout.load_font(variant["value"], 19)
     hand_font = variant["hand"]
 
-    draw.text((60, 52), variant["title"], font=layout.load_font(variant["label"], 26), fill=(20, 20, 20))
-    draw.line([(60, 92), (WIDTH - 60, 92)], fill=(40, 40, 40), width=2)
+    label_ink = variant.get("label_ink", (35, 35, 35))
+    value_ink = variant.get("value_ink", (25, 25, 25))
+    hand_ink = variant.get("hand_ink", (25, 25, 35))
+    rule_ink = variant.get("rule_ink", (60, 60, 60))
+
+    draw.text((60, 52), variant["title"], font=layout.load_font(variant["label"], 26), fill=label_ink)
+    draw.line([(60, 92), (WIDTH - 60, 92)], fill=rule_ink, width=2)
 
     y = 140
     for f in fields:
-        draw.text((60, y), f.label, font=label_font, fill=(35, 35, 35))
+        draw.text((60, y), f.label, font=label_font, fill=label_ink)
         x = 330
         baseline = y + 20
         cursor = x
         if f.handwritten:
             for word in f.value.split():
-                box = draw_hand_word(page, (cursor, y - 4), word, hand_font, HAND_SIZE)
+                box = draw_hand_word(page, (cursor, y - 4), word, hand_font, HAND_SIZE, hand_ink)
                 f.words.append((word, box))
                 cursor = box.right + 0.35 * HAND_SIZE  # a written space
             f.box = geometry.extent([ocr.Word(w, b) for w, b in f.words])
         else:
-            draw.text((x, y), f.value, font=value_font, fill=(25, 25, 25))
+            draw.text((x, y), f.value, font=value_font, fill=value_ink)
             f.box = BBox(x, y - 2, layout.text_width(value_font, f.value), 26)
             for word in f.value.split():
                 f.words.append((word, BBox(cursor, f.box.top, layout.text_width(value_font, word), f.box.height)))
                 cursor += layout.text_width(value_font, word + " ")
-        draw.line([(325, y + 27), (WIDTH - 80, y + 27)], fill=(60, 60, 60), width=1)  # field rule
+        draw.line([(325, y + 27), (WIDTH - 80, y + 27)], fill=rule_ink, width=1)  # field rule
         y += 52 if not f.handwritten else 58
 
     degraded = augment.degrade(page.convert("RGB"), rotate=True)

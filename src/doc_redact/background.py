@@ -68,6 +68,40 @@ def _clip_box(bbox: BBox, shape: tuple[int, ...], margin_x: int = 0, margin_y: i
             min(w, int(math.ceil(bbox.right)) + 1 + margin_x), min(h, int(math.ceil(bbox.bottom)) + 1 + margin_y))
 
 
+INK_CORE_FRACTION = 0.5  # of the pixels that are ink at all, the darkest half are the strokes' cores
+INK_MIN_PIXELS = 12
+INK_MIN_SATURATION = 25  # below this the ink is grey, whatever the sensor says
+
+
+def sample_ink(rgb: np.ndarray, gray: np.ndarray, bbox: BBox) -> tuple[int, int, int] | None:
+    """The colour of the strokes inside ``bbox``, or None when they are grey (so: black).
+
+    Ink is found by contrast against the paper rather than as a fixed share of the box, because how
+    much of a box is covered in ink varies hugely; a fixed share reaches into the paper on a sparse
+    box and misses strokes on a dense one. Of the pixels that are ink, only the darkest half count:
+    a stroke's edge is a blend of ink and paper, and JPEG stores colour at half resolution, so
+    including the edges pulls the reading towards the page. Near-grey reads as None, so grayscale
+    scans -- which is most of them -- keep drawing in black rather than in a tint of the noise.
+    """
+    x0, y0, x1, y1 = _clip_box(bbox, gray.shape)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    region = gray[y0:y1, x0:x1].reshape(-1).astype(np.float32)
+    colors = rgb[y0:y1, x0:x1].reshape(-1, 3)
+    if region.size < INK_MIN_PIXELS:
+        return None
+    paper = float(np.percentile(region, 90))
+    is_ink = region < paper - LINE_MIN_CONTRAST
+    if int(is_ink.sum()) < INK_MIN_PIXELS:
+        return None
+    ink_values = region[is_ink]
+    core = ink_values <= np.percentile(ink_values, 100 * INK_CORE_FRACTION)
+    ink = np.median(colors[is_ink][core], axis=0)
+    if float(ink.max() - ink.min()) < INK_MIN_SATURATION:
+        return None
+    return tuple(int(round(v)) for v in ink)
+
+
 def sample_paper(rgb: np.ndarray, gray: np.ndarray, bbox: BBox) -> Paper:
     """Paper statistics from a ring around ``bbox``, ignoring text, lines and anything else dark."""
     margin = max(RING_MIN, int(bbox.height * 0.5))
@@ -255,8 +289,12 @@ def detect_rules(gray: np.ndarray, bbox: BBox, words: list[Word] | None = None) 
     return rules
 
 
-def draw_rule(patch: np.ndarray, rule: Rule, origin: tuple[int, int]) -> None:
-    """Anti-aliased line onto an RGB patch whose top-left is at page ``origin``."""
+def draw_rule(patch: np.ndarray, rule: Rule, origin: tuple[int, int],
+              color: tuple[int, int, int] | None = None) -> None:
+    """Anti-aliased line onto an RGB patch whose top-left is at page ``origin``.
+
+    ``color`` redraws a coloured rule in its own colour; without it the line is grey at ``rule.gray``.
+    """
     ox, oy = origin
     h, w = patch.shape[:2]
     xs = np.arange(w) + ox + 0.5
@@ -268,9 +306,28 @@ def draw_rule(patch: np.ndarray, rule: Rule, origin: tuple[int, int]) -> None:
     half = rule.thickness / 2
     coverage = np.clip(np.minimum(ys + 0.5, center + half) - np.maximum(ys - 0.5, center - half), 0, 1)
     coverage *= inside[None, :]
+    ink = np.array(color if color is not None else (rule.gray,) * 3, dtype=np.float32)
     shaded = patch.astype(np.float32)
-    shaded = shaded * (1 - coverage[..., None]) + rule.gray * coverage[..., None]
+    shaded = shaded * (1 - coverage[..., None]) + ink * coverage[..., None]
     patch[:] = np.clip(shaded, 0, 255).astype(np.uint8)
+
+
+def rule_color(source_rgb: np.ndarray, source_gray: np.ndarray, rule: Rule, x0: int, x1: int
+               ) -> tuple[int, int, int] | None:
+    """A ruled line's own colour, sampled along it, or None when it is grey (so: drawn at rule.gray)."""
+    height, width = source_gray.shape
+    xs = np.arange(max(0, x0), min(width, x1))
+    if xs.size == 0:
+        return None
+    ys = np.rint(rule.y_at(xs.astype(np.float64)) - 0.5).astype(int)
+    keep = (ys >= 0) & (ys < height)
+    if not keep.any():
+        return None
+    colors = source_rgb[ys[keep], xs[keep]]
+    ink = np.median(colors, axis=0)
+    if float(ink.max() - ink.min()) < INK_MIN_SATURATION:
+        return None
+    return tuple(int(round(v)) for v in ink)
 
 
 def blank(
@@ -287,6 +344,6 @@ def blank(
         patch = np.full((y1 - y0, x1 - x0, 3), 255, np.uint8)
     rules = detect_rules(source_gray, bbox, words) if keep_lines else []
     for rule in rules:
-        draw_rule(patch, rule, (x0, y0))
+        draw_rule(patch, rule, (x0, y0), color=rule_color(source_rgb, source_gray, rule, x0, x1))
     image_rgb[y0:y1, x0:x1] = patch
     return rules

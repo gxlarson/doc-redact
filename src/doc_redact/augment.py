@@ -23,12 +23,23 @@ def _slight_rotation():
 
 
 def darken_ink(image: np.ndarray, threshold: int = 150, increment: int = 140) -> np.ndarray:
-    """Push strong strokes darker so low-ink lines don't wash out the text. Returns RGB."""
-    ink = 255 - np.asarray(ImageOps.grayscale(Image.fromarray(image)), dtype=np.int16)
-    ink[ink > threshold] += increment
-    np.clip(ink, 0, 255, out=ink)
-    out = (255 - ink).astype(np.uint8)
-    return np.asarray(Image.fromarray(out).convert("RGB"))
+    """Push strong strokes darker so low-ink lines don't wash out the text. Returns RGB.
+
+    The strength of a stroke is judged on luminance, but each channel is darkened in proportion, so
+    coloured ink stays its own colour. Rebuilding the layer from luminance, as this once did, turned
+    every replacement grey.
+    """
+    rgb = np.asarray(image, dtype=np.float32)
+    if rgb.ndim == 2:
+        rgb = np.repeat(rgb[..., None], 3, axis=2)
+    ink = 255.0 - np.asarray(ImageOps.grayscale(Image.fromarray(image)), dtype=np.float32)
+    gain = np.where(ink > threshold, (ink + increment) / np.maximum(ink, 1e-6), 1.0)
+    # Darkening multiplies each channel's ink, so the strongest channel decides how far we can go.
+    # Letting it clip instead would shift the colour: blue ink came out violet once its red and
+    # green channels hit the ceiling together.
+    headroom = 255.0 / np.maximum((255.0 - rgb).max(axis=2), 1e-6)
+    out = 255.0 - (255.0 - rgb) * np.minimum(gain, headroom)[..., None]
+    return np.clip(out, 0, 255).astype(np.uint8)
 
 
 def degrade(layer: Image.Image, rotate: bool = False) -> Image.Image:

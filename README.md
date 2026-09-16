@@ -143,6 +143,7 @@ Options for `redact`:
 | `--[no-]match-weight` | thicken strokes to match the scanned text under the box (default on) |
 | `--[no-]match-style` | mimic the original's format: date layout, state form, digit separators, address part, casing, trailing punctuation (default on) |
 | `--[no-]match-skew` | rotate the replacement to the scanned line's baseline slope, falling back to the page skew (default on) |
+| `--[no-]match-color` | draw in the original ink's colour, sampled from the strokes; grey ink stays black (default on) |
 | `--[no-]paper-fill` | fill erased boxes with paper sampled from around them (color, noise, specks) instead of white (default on) |
 | `--[no-]keep-lines` | detect horizontal rules crossing a box and redraw them synthetically after erasing (default on) |
 | `--[no-]handwriting` | replace handwritten text with handwriting, one face per document (default on) |
@@ -199,6 +200,11 @@ For each box, the OCR words at least 70% inside it are grouped into lines. That 
 - **Weight**: stroke thickness is measured on the scanned words (ink area / half the boundary length) and on the
   same words re-rendered in `--font`; text is drawn at 4x with the outline that best matches, then downsampled,
   so weight changes in 0.5 px steps. Fonts heavier than the scan are not thinned.
+- **Ink colour** (`--match-color`): sampled from the darkest half of the pixels that are ink at all, so a
+  stroke's antialiased edges and the paper don't wash the reading out. Blue ballpoint is replaced in blue,
+  and a coloured rule is redrawn in its own colour. Near-grey ink reads as black, so a grayscale scan comes
+  out byte for byte as it did before this existed. Detection (typeface, weight, baselines, rules) stays on
+  luminance — hue should not decide which face matched.
 - **Position**: glyph tops align with the original words' left/top; empty boxes are centered vertically.
 - **Line count**: addresses stay two lines only if the original spans two lines.
 - **Style** (`--match-style`): e.g. `4/12/50` → `9/3/61`, `Marfa, Tex.` → `Olney, Ark.`,

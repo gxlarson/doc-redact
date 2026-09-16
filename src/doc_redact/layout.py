@@ -10,6 +10,7 @@ from pathlib import Path
 from statistics import median
 from typing import Callable
 
+import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 from doc_redact.ocr import Word
@@ -128,14 +129,23 @@ def render_text(
     return hi.resize((w, h), Image.BOX), (tile_x, tile_y)
 
 
+def tint(tile: Image.Image, ink: tuple[int, int, int]) -> Image.Image:
+    """A grayscale coverage tile as coloured ink on white: full coverage is ``ink``, none is paper."""
+    coverage = 1.0 - np.asarray(tile, dtype=np.float32) / 255.0
+    rgb = 255.0 + coverage[..., None] * (np.array(ink, dtype=np.float32) - 255.0)
+    return Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8), mode="RGB")
+
+
 def draw_text(
     layer: Image.Image, xy: tuple[float, float], text: str, spec: str, size: int, stroke: int = 0,
     spacing: float = DEFAULT_SPACING, angle_deg: float = 0.0, pivot: tuple[float, float] | None = None,
+    ink: tuple[int, int, int] | None = None,
 ) -> None:
     """Darken ``layer`` (RGB, white background) with text whose origin is at ``xy``.
 
     ``angle_deg`` tilts the text clockwise (downhill to the right, like a skewed
-    scan line) around ``pivot`` (default: the origin).
+    scan line) around ``pivot`` (default: the origin). ``ink`` colours the strokes;
+    black when omitted.
     """
     x, y = xy
     fx, fy = int(x // 1), int(y // 1)
@@ -158,7 +168,8 @@ def draw_text(
     r, b = min(layer.width, left + tile.width), min(layer.height, top + tile.height)
     if r <= l or b <= t:
         return
-    tile = tile.crop((l - left, t - top, r - left, b - top)).convert("RGB")
+    tile = tile.crop((l - left, t - top, r - left, b - top))
+    tile = tint(tile, ink) if ink is not None else tile.convert("RGB")
     layer.paste(ImageChops.darker(layer.crop((l, t, r, b)), tile), (l, t))
 
 
