@@ -59,6 +59,7 @@ class TextDate:
     comma: bool
     year_digits: int
     has_day: bool = True  # "Jan. 1968" names a month and a year only
+    has_year: bool = True  # "August 18" names a month and a day only
 
 
 DateStyle = Union[NumericDate, TextDate]
@@ -67,8 +68,10 @@ _NUMERIC_DATE = re.compile(r"(\d{1,2})\s*([-/.])\s*(\d{1,2})\s*\2\s*(\d{4}|\d{2}
 _MONTH_TOKEN = r"(?P<month>[A-Za-z]{3,9})(?P<dot>\.)?"
 _MONTH_FIRST = re.compile(_MONTH_TOKEN + r"\s*(?P<day>\d{1,2})(?:st|nd|rd|th)?\s*(?P<comma>,)?\s*(?P<year>\d{4}|\d{2})")
 # Tried before the others: "Sept. 1972" would otherwise match _MONTH_FIRST with the year split into a
-# day ("19") and a two-digit year ("72"), turning a month-and-year date into a full one.
-_MONTH_YEAR = re.compile(_MONTH_TOKEN + r"\s*(?P<comma>,)?\s*(?P<year>\d{4}|\d{2})")
+# day ("19") and a two-digit year ("72"), turning a month-and-year date into a full one. A month
+# followed by one number is read as a day when the number could be one ("August 18") and as a year
+# when it could not ("Jan. 68", "Sept. 1972").
+_MONTH_NUMBER = re.compile(_MONTH_TOKEN + r"\s*(?P<comma>,)?\s*(?P<number>\d{4}|\d{1,2})")
 _DAY_FIRST = re.compile(r"(?P<day>\d{1,2})(?:st|nd|rd|th)?\s+" + _MONTH_TOKEN + r"\s*(?P<comma>,)?\s*(?P<year>\d{4}|\d{2})")
 
 
@@ -106,10 +109,13 @@ def parse_date(text: str) -> tuple[DateStyle, int, int, int] | None:
         if not (1 <= month <= 12 and 1 <= day <= 31):
             return None
         return NumericDate(sep=m[2], year_digits=len(year), pad=pad, day_first=day_first), _full_year(year), month, day
-    if (m := _MONTH_YEAR.fullmatch(t)) and (form := _month_form(m["month"], bool(m["dot"]))):
-        month = _month_number(m["month"])
-        style = TextDate(month=form, day_first=False, comma=bool(m["comma"]), year_digits=len(m["year"]), has_day=False)
-        return style, _full_year(m["year"]), month, 1
+    if (m := _MONTH_NUMBER.fullmatch(t)) and (form := _month_form(m["month"], bool(m["dot"]))):
+        month, number = _month_number(m["month"]), m["number"]
+        if len(number) <= 2 and 1 <= int(number) <= 31:  # a day: "August 18", with the year elsewhere
+            style = TextDate(month=form, day_first=False, comma=bool(m["comma"]), year_digits=4, has_year=False)
+            return style, 1900, month, int(number)
+        style = TextDate(month=form, day_first=False, comma=bool(m["comma"]), year_digits=len(number), has_day=False)
+        return style, _full_year(number), month, 1
     for pattern, day_first in ((_MONTH_FIRST, False), (_DAY_FIRST, True)):
         if (m := pattern.fullmatch(t)) and (form := _month_form(m["month"], bool(m["dot"]))):
             day = int(m["day"])
@@ -146,6 +152,8 @@ def format_date(style: DateStyle, year: int, month: int, day: int) -> str:
     comma = "," if style.comma else ""
     if not style.has_day:
         return f"{name}{comma} {y}"
+    if not style.has_year:
+        return f"{name}{comma} {day}"
     if style.day_first:
         return f"{day} {name}{comma} {y}"
     return f"{name} {day}{comma} {y}"

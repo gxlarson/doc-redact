@@ -42,6 +42,13 @@ a real PII box, but the "before" text was never personal.
 |---|---|---|
 | `train_invoice_aa0c9b64-*` | style matching, and that only the annotated box changes: the invoice number beside it is untouched | `render --page train_invoice_aa0c9b64 --box 187,146,157,13 --category birth_date --seed 0 --scale 3` |
 | `train_letter_99afcf16-*` | a date replaced in place under a full letterhead | `render --page train_letter_99afcf16 --box 381,196,100,14 --category birth_date --seed 0 --scale 2 --pad 340,190,340,45` |
+| `train_scientific_report_48b1820b-*` | a grant form: the replacement sits on the printed rule, in the form's own hand-typed face | `render --page train_scientific_report_48b1820b --box 156,534,88,13 --category birth_date --seed 0 --scale 2` |
+| `train_memo_b86bd5c9-*` | a month and a day with the year elsewhere ("week of August 18"), inside a business memo | `render --page train_memo_b86bd5c9 --box 242,448,81,14 --category birth_date --seed 0 --scale 2` |
+
+The last two came from classes the corpus barely annotates — scientific reports, memos, specifications —
+which is where the institutional documents live. `--fetch <classes>` downloads a class that is not in
+the cache yet, whole rather than page by page: the token counts are what separate boilerplate from
+someone's data, and counts taken over a handful of pages would call everything rare.
 
 `--margin auto` (the default) takes the widest context a page allows before touching annotated PII;
 `--pad LEFT,TOP,RIGHT,BOTTOM` is for pages that are only safe on some sides, like the letterhead

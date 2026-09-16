@@ -145,3 +145,17 @@ def test_a_month_and_year_date_keeps_its_shape():
     # A day out of range is not a date at all; an impossible-but-in-range day (Feb 31) is left alone,
     # since a scan can genuinely carry one and only the shape is copied.
     assert style.parse_date("Feb. 41, 1970") is None
+
+
+def test_a_month_and_day_without_a_year_keeps_its_shape():
+    """On a form the year often sits elsewhere ("... week of August 18"). Reading the 18 as a year
+    turns the replacement into "March 48", which is not a date anyone would write."""
+    detected = style.detect_date("August 18")
+    assert detected.has_day and not detected.has_year
+    assert style.parse_date("August 18")[2:] == (8, 18)
+    fakedata.seed(3)
+    for _ in range(20):
+        assert re.fullmatch(r"[A-Z][a-z]+\.? \d{1,2}", fakedata.fake_date(detected))
+    # A number too big to be a day is still a year.
+    assert style.detect_date("Jan. 68").has_day is False
+    assert style.parse_date("Jan. 68")[1] == 1968

@@ -64,22 +64,36 @@ def category_for(text: str) -> str | None:
     return None
 
 
-def load_pages(fetcher: Fetcher, dataset, annotations: Path, cache: Path):
-    """Cached pages that appear in the annotation file, with their OCR words and document frequencies."""
+def load_pages(fetcher: Fetcher, dataset, annotations: Path, cache: Path, fetch_classes=None, max_pages=0):
+    """Pages from the annotation file with their OCR words, plus how often each token occurs across them.
+
+    Cached pages are free. ``fetch_classes`` additionally downloads whole RVL-CDIP classes that are not
+    cached yet; a class is downloaded entire (subject to ``max_pages``) rather than page by page,
+    because the token counts are what tell boilerplate apart from someone's data, and counts taken over
+    a handful of pages would call everything rare.
+    """
     annotated = {d["url"]: d for d in json.load(open(annotations, encoding="utf-8"))}
     ocr_dir = cache / "cumberland.isis.vanderbilt.edu" / "stefan" / "rvlcdip_ocr"
+    urls = {f"https://cumberland.isis.vanderbilt.edu/stefan/rvlcdip/{p.stem}.jpg" for p in ocr_dir.glob("*.json")}
+    urls &= set(annotated)
+    if fetch_classes:
+        wanted = [u for u in annotated if any(f"_{c}_" in u for c in fetch_classes)]
+        if max_pages:
+            wanted = wanted[:max_pages]
+        log.info("fetching OCR for %d page(s) of %s", len(wanted), ", ".join(fetch_classes))
+        urls |= set(wanted)
+
     df: collections.Counter[str] = collections.Counter()
     loaded = {}
-    for path in sorted(ocr_dir.glob("*.json")):
-        url = f"https://cumberland.isis.vanderbilt.edu/stefan/rvlcdip/{path.stem}.jpg"
-        if url not in annotated:
-            continue
+    for url in sorted(urls):
+        doc = Document(url=url, annotations=[])
         try:
-            size = fetcher.image_size(dataset.image_url(Document(url=url, annotations=[])))
+            size = fetcher.image_size(dataset.image_url(doc))
+            page_ocr = fetcher.json(dataset.ocr_url(doc))
         except Exception as exc:
-            log.debug("skipping %s: %r", path.stem, exc)
+            log.debug("skipping %s: %r", url.rsplit("/", 1)[-1][:28], exc)
             continue
-        words = ocr.words(json.load(open(path, encoding="utf-8")), size)
+        words = ocr.words(page_ocr, size)
         loaded[url] = (words, size)
         df.update({w.text.strip(".,:;()").lower() for w in words if w.text.strip()})
     return annotated, loaded, df
@@ -157,7 +171,12 @@ SENSITIVE = {
 HONORIFICS = {"mr", "mrs", "ms", "miss", "dr", "prof", "rev", "hon", "sgt", "capt", "lt", "col", "gen"}
 CREDENTIALS = {"m.d.", "md", "ph.d.", "phd", "d.d.s.", "r.n.", "rn", "esq", "jr", "sr", "r.r.a."}
 _INITIALS = re.compile(r"[A-Z]\.")
-_TITLE_CASE = re.compile(r"[A-Z][a-z]{2,}")
+_TITLE_CASE = re.compile(r"[A-Z][a-z]{2,}(?:[-'][A-Z]?[a-z]+)*")  # "Anne-Marie", "O'Brien"
+_UPPER_WORD = re.compile(r"[A-Z]{3,}(?:[-'][A-Z]+)*")  # memo headers shout surnames: "WYATT", "MILLER"
+
+
+def _name_shaped(text: str) -> bool:
+    return bool(_TITLE_CASE.fullmatch(text) or _UPPER_WORD.fullmatch(text))
 
 
 def names_in_crop(window: BBox, words, df) -> list[str]:
@@ -179,13 +198,16 @@ def names_in_crop(window: BBox, words, df) -> list[str]:
         if bare in HONORIFICS or word.text.strip(",:;()").lower() in CREDENTIALS:
             hits.append("honorific/credential")
             continue
-        if _INITIALS.fullmatch(word.text) and i + 1 < len(inside) and _TITLE_CASE.fullmatch(inside[i + 1].text):
+        if _INITIALS.fullmatch(word.text) and i + 1 < len(inside) and _name_shaped(inside[i + 1].text.strip(",")):
             hits.append("initial + capitalised word")
             continue
-        if _TITLE_CASE.fullmatch(word.text) and df[bare] <= 2:
-            nxt = inside[i + 1].text if i + 1 < len(inside) else ""
-            if _TITLE_CASE.fullmatch(nxt) and df[nxt.strip(".,:;()").lower()] <= 2:
+        if _name_shaped(word.text) and df[bare] <= 2:
+            nxt = inside[i + 1].text.strip(",") if i + 1 < len(inside) else ""
+            # A rare capitalised word beside another is a name; alone in a memo header it is one too.
+            if _name_shaped(nxt) and df[nxt.strip(".,:;()").lower()] <= 2:
                 hits.append("two rare capitalised words")
+            elif _UPPER_WORD.fullmatch(word.text) and df[bare] <= 1:
+                hits.append("a rare shouted word, as memo headers write surnames")
     return hits
 
 
@@ -227,8 +249,9 @@ def crop_pair(image, redacted, window: BBox, scale: int):
 
 def cmd_find(args) -> int:
     fetcher = Fetcher(args.cache)
-    annotated, loaded, df = load_pages(fetcher, dataset, args.annotations, args.cache)
-    log.info("%d cached pages carry annotations", len(loaded))
+    annotated, loaded, df = load_pages(fetcher, dataset, args.annotations, args.cache,
+                                       fetch_classes=args.fetch, max_pages=args.max_pages)
+    log.info("%d annotated pages available", len(loaded))
     found = find_candidates(fetcher, dataset, annotated, loaded, df, args.min_df)
     log.info("candidates: %s", {k: len(v) for k, v in found.items()})
 
@@ -299,7 +322,8 @@ def cmd_find(args) -> int:
 
 def cmd_render(args) -> int:
     fetcher = Fetcher(args.cache)
-    annotated, loaded, df = load_pages(fetcher, dataset, args.annotations, args.cache)
+    annotated, loaded, df = load_pages(fetcher, dataset, args.annotations, args.cache,
+                                       fetch_classes=args.fetch, max_pages=args.max_pages)
     url = next((u for u in loaded if args.page in u), None) or next((u for u in annotated if args.page in u), None)
     if url is None:
         log.error("no annotated page matches %r", args.page)
@@ -354,6 +378,8 @@ def main() -> int:
     f.add_argument("--context", type=int, default=260, help="px of surrounding page to show, if the page allows it")
     f.add_argument("--min-context", type=int, default=60, help="skip candidates that cannot show this much")
     f.add_argument("--classes", nargs="*", help="only these RVL-CDIP classes, e.g. invoice specification")
+    f.add_argument("--fetch", nargs="*", help="download these classes if they are not cached yet")
+    f.add_argument("--max-pages", type=int, default=0, help="cap on pages downloaded by --fetch")
     f.add_argument("--exclude-classes", nargs="*", default=["resume", "questionnaire", "handwritten"],
                    help="classes to skip (default: the personal-record classes, whose context identifies "
                         "the subject through career history and the like even with every name removed)")
@@ -366,6 +392,8 @@ def main() -> int:
     r.add_argument("--margin", default="auto", help="px of context, or 'auto' for the widest this page allows")
     r.add_argument("--max-margin", type=int, default=300, help="cap for --margin auto")
     r.add_argument("--pad", help="per-side context as LEFT,TOP,RIGHT,BOTTOM; overrides --margin")
+    r.add_argument("--fetch", nargs="*", help="download these classes if they are not cached yet")
+    r.add_argument("--max-pages", type=int, default=0, help="cap on pages downloaded by --fetch")
     r.add_argument("--scale", type=int, default=4)
     r.set_defaults(func=cmd_render)
 
