@@ -6,13 +6,63 @@ replacing them with realistic fake text that is degraded to look printed.
 Supports RVL-CDIP, FUNSD, Tobacco3482 and Tobacco800. Images and their AWS
 Textract OCR are downloaded from the hosting server named in each annotation's `url`.
 
+![Three documents before and after synthetic replacement: a typed memo, a
+handwritten coupon expiry, and a degraded flyer](figures/redaction_pairs.png)
+
+Each replacement is matched to the page it is written into: the typeface is
+chosen per region from the words around it, the stroke weight and ink color are
+measured from them, the text follows the scanned line's baseline and skew,
+handwriting is replaced by handwriting, and any ruled line crossing the region is
+redrawn. The format of the original is copied but never its value.
+
+The regions replaced above are document dates, not personal data. Every annotated
+region in this corpus belongs to a real person, so a genuine before-and-after
+cannot be published; `figures/README.md` records the screens a published example
+has to pass.
+
 ## Install
 
 ```sh
 pip install -e ".[dev]"
 ```
 
+## Quick start
+
+Nothing needs downloading to see the tool work. `synthetic_page.py` builds a
+personnel file from the generators, with its own Textract-style OCR, and runs
+the real pipeline over it:
+
+```sh
+python scripts/synthetic_page.py -o demo --variants serif --seed 0
+```
+
+That writes `demo/synthetic_serif_before.png` and `_after.png`. Every value on
+the page is generated, so nothing on it belongs to anyone, and one page shows
+most of what the tool does:
+
+| in the before | in the after | because |
+|---|---|---|
+| `Sarah Chang` in the name field, and again in the signature | `Ryan Taylor` in both | one identity per person, across print and handwriting |
+| `Jennifer Chang` as spouse | `David Taylor` | people sharing a surname keep a shared surname |
+| `Sand Rock, MN 56617` | `Cotton Center, KY 42457` | the ZIP is drawn from its state's own range |
+| `(345) 840-3350` | `(358) 613-0749` | the number obeys the North American numbering plan |
+| `289-18-1554` | `713-58-4364` | the SSN keeps the shape the SSA issues |
+| `12-27-1935`, handwritten | `3-10-1943`, handwritten | handwriting is replaced by handwriting, format kept |
+
+Pass `--variants` to get the other three pages (`typewriter`, `elite`, `color`);
+the color one exists because RVL-CDIP is greyscale and cannot show colored ink
+being replaced in its own color.
+
+The values above are what `--seed 0` produces, so the run should reproduce them.
+The pixels will differ: the seed fixes the generated data, not the paper texture
+and scanner wear drawn over it.
+
 ## Usage
+
+Redacting real documents needs an annotation file: a list of pages, each with a
+`url` and the bounding boxes to replace (see **Annotation format** below). The
+ones released with the paper are on the Hugging Face Hub; the examples here name
+them as `annotations/redactions_*.json`.
 
 ```sh
 # White boxes over every annotated region
@@ -28,7 +78,7 @@ doc-redact redact annotations/redactions_tobacco3482_parsed.json \
     --dataset tobacco3482 -o output/redo --only 50536499-6500 \
     --text birth_date="Oct.8,14" --text birth_place="Orance, CA"
 
-# Old behaviour: fixed font size, random formats, no width fitting
+# Old behavior: fixed font size, random formats, no width fitting
 doc-redact redact annotations/redactions_tobacco3482_parsed.json \
     --dataset tobacco3482 -o output/plain --font-size 34 --no-fit-width --no-match-style
 
@@ -143,7 +193,7 @@ Options for `redact`:
 | `--[no-]match-weight` | thicken strokes to match the scanned text under the box (default on) |
 | `--[no-]match-style` | mimic the original's format: date layout, state form, digit separators, address part, casing, trailing punctuation (default on) |
 | `--[no-]match-skew` | rotate the replacement to the scanned line's baseline slope, falling back to the page skew (default on) |
-| `--[no-]match-color` | draw in the original ink's colour, sampled from the strokes; grey ink stays black (default on) |
+| `--[no-]match-color` | draw in the original ink's color, sampled from the strokes; gray ink stays black (default on) |
 | `--degrade` | `auto` (default), `always` or `never`: add scanner wear to replacements only on pages whose own text is worn |
 | `--[no-]paper-fill` | fill erased boxes with paper sampled from around them (color, noise, specks) instead of white (default on) |
 | `--[no-]keep-lines` | detect horizontal rules crossing a box and redraw them synthetically after erasing (default on) |
@@ -152,7 +202,7 @@ Options for `redact`:
 | `--jpeg-quality N` | quality for JPEG output (default 95) |
 | `--only ID` | process only these documents (repeatable) |
 | `--text CATEGORY=TEXT` | fixed replacement text for a category |
-| `--seed N` | reproducible fake data and augmentation |
+| `--seed N` | reproducible fake data. The generated values are determined by the seed; the paper texture and scanner wear are not, so two runs at the same seed give the same text on visibly different pixels |
 | `--cache DIR` | keep downloaded images/OCR on disk |
 | `--keep-unannotated` | also save pages that have no annotations |
 
@@ -201,9 +251,9 @@ For each box, the OCR words at least 70% inside it are grouped into lines. That 
 - **Weight**: stroke thickness is measured on the scanned words (ink area / half the boundary length) and on the
   same words re-rendered in `--font`; text is drawn at 4x with the outline that best matches, then downsampled,
   so weight changes in 0.5 px steps. Fonts heavier than the scan are not thinned.
-- **Ink colour** (`--match-color`): sampled from the darkest half of the pixels that are ink at all, so a
+- **Ink color** (`--match-color`): sampled from the darkest half of the pixels that are ink at all, so a
   stroke's antialiased edges and the paper don't wash the reading out. Blue ballpoint is replaced in blue,
-  and a coloured rule is redrawn in its own colour. Near-grey ink reads as black, so a grayscale scan comes
+  and a colored rule is redrawn in its own color. Near-gray ink reads as black, so a grayscale scan comes
   out byte for byte as it did before this existed. Detection (typeface, weight, baselines, rules) stays on
   luminance — hue should not decide which face matched.
 - **Scanner wear** (`--degrade auto`): replacements get low-ink dropouts only when the page's own text
@@ -272,17 +322,24 @@ src/doc_redact/
   datasets.py     URL/output/font conventions per dataset
   remote.py       downloads with optional disk cache
   annotations.py  BBox/Document types, JSON I/O, Label Studio parser
+  categories.py   annotation category names and their aliases
   ocr.py          Textract WORD blocks -> pixel boxes
   geometry.py     word coverage and line-height heuristics
   checks.py       annotation audit rules
   render.py       white-out, replacement planning and drawing
+  background.py   erasing a box: generated paper texture and redrawn form lines
+  baseline.py     baselines and line skew, measured from pixels
   layout.py       font loading, size estimation, width fitting, supersampled drawing
   weight.py       stroke thickness measurement and matching
   typeface.py     candidate fonts and per-box typeface matching
+  handwriting.py  drawing in a handwriting font, with per-letter variation
   fonts/          bundled open-license fonts (see fonts/FONTS.txt)
   style.py        format detection (dates, places, digits, addresses, casing)
   augment.py      scan-like degradation and compositing
   fakedata.py     replacement text generators
+  people.py       one fake identity per real person within a document
+  addresses.py    one fake address per real address within a document
+  values.py       one fake value per real value, for SSNs, phones, dates
   resources.py    bundled word lists and US state names
 ```
 

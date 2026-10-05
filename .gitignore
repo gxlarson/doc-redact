@@ -3,3 +3,13 @@ __pycache__/
 .pytest_cache/
 .cache/
 output/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local figure experiments: pipeline stage renders and typeface-match sheets,
+# and the scripts that produce them. Kept out of the repo because they are
+# exploratory rather than part of the released tool.
+figures/stages/
+scripts/pipeline_stages.py
+scripts/font_matching.py

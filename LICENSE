@@ -1,0 +1,38 @@
+MIT License
+
+Copyright (c) 2026 Stefan Larson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+This license covers the source code in this repository.
+
+It does NOT cover two other kinds of file distributed here:
+
+1. The fonts under src/doc_redact/fonts/, which keep their own licenses (SIL
+   OFL, Apache 2.0, GUST, Bitstream, DejaVu). See src/doc_redact/fonts/FONTS.txt
+   and the per-font LICENSE files beside it.
+
+2. The document images under figures/, which are pages of RVL-CDIP and through
+   it of the Legacy Tobacco Documents Library. RVL-CDIP gives no license of its
+   own and refers to the Library's terms:
+   https://www.industrydocuments.ucsf.edu/help/copyright/
+   Those terms apply to the page images here. They are reproduced to illustrate
+   what the tool does; the regions replaced in them are not personal data.

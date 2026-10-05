@@ -102,8 +102,8 @@ handwritten block and the annotations for rerunning.
 | `synthetic_elite_*` | Carlito | Special Elite | Architects Daughter |
 | `synthetic_color_*` | Carlito in dark blue | Courier Prime | Kalam in blue ballpoint |
 
-The colour variant exists because the corpus cannot show this: RVL-CDIP is grayscale, so the only way
-to see coloured ink replaced in its own colour is to build a page that has some. The signature fields
+The color variant exists because the corpus cannot show this: RVL-CDIP is grayscale, so the only way
+to see colored ink replaced in its own color is to build a page that has some. The signature fields
 come back in blue, the typed fields in near-black, and the blue rules are redrawn blue.
 
 ```sh
