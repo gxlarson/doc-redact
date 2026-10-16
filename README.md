@@ -82,6 +82,7 @@ examples/
   annotations_hosted.json   the same boxes, with the page's url on a web server
   page.png                  the page image
   page.json                 its OCR, in Textract's format
+  redact_page.py            the same page redacted from Python (see Python interface)
 ```
 
 ### Annotation file
@@ -194,6 +195,43 @@ doc-redact redact examples/annotations_hosted.json -o output/hosted --seed 0 --c
 ```
 
 With the same `--seed`, the two setups write the same replacement text.
+
+### Python interface
+
+`pipeline.redact_document` redacts one page that is already in memory, with the boxes
+given as Python objects, so it does not need an annotation file or a URL. The script
+`examples/redact_page.py` uses it on the example page, step by step:
+
+```sh
+python examples/redact_page.py
+```
+
+The script writes `examples/output/page_white.png` (white boxes),
+`examples/output/page_pseudo.png` (fake text) and `examples/output/comparison.png`, which
+shows the original and the two redactions side by side with the replaced boxes outlined.
+The core of the script is the following:
+
+```python
+import json
+from PIL import Image
+from doc_redact import fakedata, pipeline, render
+from doc_redact.annotations import Annotation, BBox, Document
+
+page = Image.open("examples/page.png").convert("RGB")
+ocr = json.load(open("examples/page.json"))
+doc = Document(url="page.png", annotations=[
+    Annotation("name", BBox(left=330, top=138, width=121, height=26)),
+    Annotation("ssn", BBox(left=330, top=190, width=121, height=26)),
+])
+options = pipeline.Options(pipeline.Mode.PSEUDO,
+                           render.TextSettings(font="LiberationSerif-Regular.ttf", font_size=24))
+fakedata.seed(0)
+pipeline.redact_document(page, doc, ocr, options).save("redacted.png")
+```
+
+`TextSettings` has a field for each `--[no-]` option of the command line, and its
+`font` and `font_size` are the fallback used when a box does not have measurable OCR
+words nearby. Without OCR, pass `{"Blocks": []}` in place of the OCR.
 
 ### Released data
 
