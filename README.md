@@ -3,8 +3,9 @@
 Redact PII regions in scanned document images, either by whiting them out or by
 replacing them with realistic fake text that is degraded to look printed.
 
-Supports RVL-CDIP, FUNSD, Tobacco3482 and Tobacco800. Images and their AWS
-Textract OCR are downloaded from the hosting server named in each annotation's `url`.
+Supports RVL-CDIP, FUNSD, Tobacco3482, Tobacco800 and any other set of page images
+with AWS Textract OCR. The images and OCR are read from disk or downloaded from a web
+server, depending on each annotation's `url`.
 
 ![Three documents before and after synthetic replacement: a typed memo, a
 handwritten coupon expiry, and a degraded flyer](figures/redaction_pairs.png)
@@ -13,12 +14,7 @@ Each replacement is matched to the page it is written into: the typeface is
 chosen per region from the words around it, the stroke weight and ink color are
 measured from them, the text follows the scanned line's baseline and skew,
 handwriting is replaced by handwriting, and any ruled line crossing the region is
-redrawn. The format of the original is copied but never its value.
-
-The regions replaced above are document dates, not personal data. Every annotated
-region in this corpus belongs to a real person, so a genuine before-and-after
-cannot be published; `figures/README.md` records the screens a published example
-has to pass.
+redrawn. The replacement copies the format of the original but not its value.
 
 ## Install
 
@@ -28,7 +24,7 @@ pip install -e ".[dev]"
 
 ## Quick start
 
-Nothing needs downloading to see the tool work. `synthetic_page.py` builds a
+The tool can be tried without downloading any data: `synthetic_page.py` builds a
 personnel file from the generators, with its own Textract-style OCR, and runs
 the real pipeline over it:
 
@@ -50,19 +46,174 @@ most of what the tool does:
 | `12-27-1935`, handwritten | `3-10-1943`, handwritten | handwriting is replaced by handwriting, format kept |
 
 Pass `--variants` to get the other three pages (`typewriter`, `elite`, `color`);
-the color one exists because RVL-CDIP is greyscale and cannot show colored ink
+the color one exists because RVL-CDIP is grayscale and cannot show colored ink
 being replaced in its own color.
 
 The values above are what `--seed 0` produces, so the run should reproduce them.
-The pixels will differ: the seed fixes the generated data, not the paper texture
-and scanner wear drawn over it.
+The pixels will differ, because the seed determines the generated data but not the
+paper texture and scanner wear drawn over it.
+
+The script calls the pipeline directly from Python, whereas the `doc-redact` command
+reads a page, its OCR and its annotations from files; the command is described under
+**Usage**, with an example input in `examples/`.
 
 ## Usage
 
-Redacting real documents needs an annotation file: a list of pages, each with a
-`url` and the bounding boxes to replace (see **Annotation format** below). The
-ones released with the paper are on the Hugging Face Hub; the examples here name
-them as `annotations/redactions_*.json`.
+Every page to redact needs three things:
+
+| | content | format |
+|---|---|---|
+| page image | the scan | any format that Pillow opens: JPEG, PNG, TIFF, ... |
+| OCR | every word on the page and its position | AWS Textract JSON, one file per page |
+| annotations | the boxes to replace and the category of each | one entry in an annotation file |
+
+The annotation file is the only input named on the command line. It lists the
+pages, and the `url` of each entry gives the location of the page image; the OCR
+file is located from the same `url`. A `url` can be a web address, from which the
+file is downloaded, or a path, from which it is read, so the same command works on
+a folder of scans and on a corpus stored on a web server.
+
+The folder `examples/` contains one complete input, built from generated values so
+that none of it belongs to a real person:
+
+```
+examples/
+  annotations.json          the boxes to replace; its url is "page.png"
+  annotations_hosted.json   the same boxes, with the page's url on a web server
+  page.png                  the page image
+  page.json                 its OCR, in Textract's format
+```
+
+### Annotation file
+
+The annotation file is a JSON list with one entry per page:
+
+```json
+[
+  {"url": "page.png",
+   "annotations": [
+     {"category": "name",       "bbox": {"left": 330, "top": 138, "width": 121, "height": 26}},
+     {"category": "birth_date", "bbox": {"left": 330, "top": 242, "width": 154, "height": 26}}
+   ]}
+]
+```
+
+* `url` is the location of the page image: `https://...`, an absolute path, a
+  `file://` URL, or a path relative to the folder of the annotation file. The output
+  file has the same file name.
+* `bbox` is in pixels, with the origin at the top-left corner of the image. Label
+  Studio boxes in percent of the image size (`{"x", "y", "width", "height"}`) are also
+  accepted and converted to pixels once the image size is known.
+* `category` determines the kind of replacement text (see **Categories** below).
+* Entries with the same `url` are merged into one page, so a page annotated in
+  several passes is redacted once, with the boxes from every pass.
+
+`doc-redact parse-labelstudio` converts a Label Studio export into this format.
+
+### OCR file
+
+The OCR file is the JSON response of the AWS Textract `DetectDocumentText` operation
+for the page, saved unchanged. The tool reads only the `WORD` blocks and only the
+following fields:
+
+```json
+{"Blocks": [
+  {"BlockType": "WORD", "Text": "Sarah", "TextType": "PRINTED",
+   "Geometry": {"BoundingBox": {"Left": 0.3667, "Top": 0.1683, "Width": 0.0611, "Height": 0.0317}}}
+]}
+```
+
+`Left`, `Top`, `Width` and `Height` are fractions of the page width and height.
+`TextType` is optional, and a word marked `HANDWRITING` is replaced in a handwriting
+font. Other block types and fields are ignored, so OCR from another engine can be
+used after conversion to this structure.
+
+The following code produces an OCR file with Textract:
+
+```python
+import json, boto3
+response = boto3.client("textract").detect_document_text(Document={"Bytes": open("page.png", "rb").read()})
+json.dump(response, open("page.json", "w"))
+```
+
+The replacement for each box is matched to the OCR words: the words under the box
+determine its format, typeface, size, weight, baseline, skew and handwriting, and the
+words on the rest of the page are used to link repeated names and values. With
+`--no-ocr` the tool still erases every box and fills it with paper texture, rule lines
+and generated text, but it draws the text in the fallback font and size and does not
+match it to the page; the `check` command requires OCR.
+
+### Local files
+
+In this setup the tool reads every file from disk, and when each OCR file is saved
+next to its image, with the same name and the extension `.json`, the command needs
+only the annotation file:
+
+```sh
+doc-redact redact examples/annotations.json -o output/example --seed 0
+```
+
+This command writes `output/example/page.png`. When the images and the OCR files are
+in separate folders, `--images` and `--ocr` name the two folders, and the `url` of
+each entry then needs to contain only the file name:
+
+```sh
+doc-redact redact annotations.json --images scans/ --ocr textract/ -o output/redacted
+```
+
+The same options read a downloaded copy of a corpus whose annotation file contains the
+URLs of the server: the files are looked up by the names that the server uses. Either
+option can be used alone, to read only the images or only the OCR from disk.
+
+### Files on a web server
+
+In this setup each `url` is a web address, and the image and OCR of each page are
+downloaded when the page is processed. By default the OCR file is expected at the URL
+of the image with `.json` in place of the extension (`.../page.png` and
+`.../page.json`). For corpora that store their OCR elsewhere, `--dataset` selects a
+named rule:
+
+| `--dataset` | Image | OCR | Fallback font |
+|---|---|---|---|
+| `generic` (default) | `url` | `url` with `.json` | Liberation Serif 24 |
+| `funsd` | `url` with `.png` | `FUNSD_ocr/<id>.json` beside `FUNSD/` | Inconsolata 14 |
+| `tobacco3482` | `url` | `url` with `.json` | Liberation Serif 34 |
+| `tobacco800` | `url` | `url` with `.json` | Courier Prime 21 |
+| `rvlcdip` | `url`, adding `.jpg` if it does not have an extension | `rvlcdip_ocr/<id>.json` beside `rvlcdip/` | Inconsolata 13 |
+
+The fallback font and size are used only when a box does not have measurable OCR
+words nearby. `--cache DIR` saves every download under the same paths as on the server, so
+later runs read the files from disk.
+
+The following commands test this setup with a local web server that serves
+`examples/`:
+
+```sh
+python -m http.server 8000 --directory examples &
+doc-redact redact examples/annotations_hosted.json -o output/hosted --seed 0 --cache .cache
+```
+
+With the same `--seed`, the two setups write the same replacement text.
+
+### Released data
+
+The annotations used for the paper are not released, because they record the location
+of every sensitive entity on the page and the original pages are public, so the
+coordinates would amount to a list of the values that they locate. The released
+data is the corpus with those values already replaced:
+
+| Dataset | Contents |
+|---|---|
+| [`stefan-hf/rvlcdip-redact`](https://huggingface.co/datasets/stefan-hf/rvlcdip-redact) | the de-identified RVL-CDIP corpus, with and without identification codes, as page images and OCR |
+| [`stefan-hf/rvlcdip-label-fixes`](https://huggingface.co/datasets/stefan-hf/rvlcdip-label-fixes) | the label review of all 400,000 documents |
+| [`stefan-hf/rvlcdip-duplicates`](https://huggingface.co/datasets/stefan-hf/rvlcdip-duplicates) | test and validation documents with a near-duplicate in training |
+| [`stefan-hf/rvlcdip-id-codes`](https://huggingface.co/datasets/stefan-hf/rvlcdip-id-codes) | annotated and detected litigation identification codes |
+| [`stefan-hf/rvlcdip-n`](https://huggingface.co/datasets/stefan-hf/rvlcdip-n) · [`-o`](https://huggingface.co/datasets/stefan-hf/rvlcdip-o) | the two out-of-distribution evaluation sets |
+
+### Further examples
+
+In the following examples, `annotations/redactions_*.json` stands for an annotation
+file of your own, for a corpus stored as the named `--dataset` rules expect.
 
 ```sh
 # White boxes over every annotated region
@@ -93,36 +244,37 @@ doc-redact parse-labelstudio redactions_FUNSD.json redactions_FUNSD_parsed.json 
 
 `python -m doc_redact ...` works without installing (with `src` on `PYTHONPATH`).
 
-## Running a whole corpus
+## Full-corpus runs
 
-Defaults are what you want for a full run: pseudonymized text, matched typeface, size,
-weight, skew and format, paper fill and preserved rules. Only `-o`, `--seed` and
-`--cache` need choosing.
+The default settings are intended for a full run: pseudonymized text, matched typeface,
+size, weight, skew and format, paper fill and preserved rules. A full run needs only
+`-o`, `--seed` and `--cache`.
 
 ```sh
 doc-redact redact rvlcdip_pii_annotated.json \
     --dataset rvlcdip -o output/rvlcdip_pseudo --seed 0 --cache .cache
 ```
 
-Cost is dominated by typeface matching, and it is charged **per box**, not per page:
-about 1.6 s per box with `--match-font`, 0.3 s without (measured on 1080p-ish RVL-CDIP
-scans; handwritten pages cost roughly double, since a second matcher runs over the
-handwriting faces). For the 15,956 annotated RVL-CDIP pages (39,435 boxes) that is
-roughly **19 core-hours**, or about 4.5 with `--no-match-font`.
+Most of the running time is spent on typeface matching, which runs once for each box:
+about 1.6 s per box with `--match-font` and 0.3 s without it (measured on RVL-CDIP scans
+of roughly 1080p resolution; handwritten pages take roughly twice as long, because a
+second matcher compares the handwriting fonts). For the 15,956 annotated RVL-CDIP pages
+(39,435 boxes), the total is roughly 19 core-hours, or about 4.5 with `--no-match-font`.
 
-Downloads are ~780 KB per page (image plus Textract JSON), so a full RVL-CDIP run pulls
-about 12 GB. With `--cache` it is pulled once; pre-fetching before a parallel run keeps
-the workers from hammering the server at once:
+Each page requires a download of about 780 KB (image and Textract JSON), so a full
+RVL-CDIP run downloads about 12 GB. With `--cache` the data is downloaded only once,
+and before a parallel run the following command downloads the corpus in advance, so
+that the workers do not send simultaneous requests to the server:
 
 ```sh
 doc-redact check rvlcdip_pii_annotated.json --dataset rvlcdip --cache .cache >/dev/null
 ```
 
-### Across cores
+### Parallel runs
 
-Pages are independent, so split the annotation file and run one process per core.
-Output file names come from each document's URL, so every shard can write to the same
-`-o` directory.
+Pages are processed independently, so the annotation file can be split into shards
+and processed with one process per core. Output file names are derived from the URL of
+each document, so all shards can write to the same `-o` directory.
 
 ```sh
 # Split into one file per core
@@ -142,24 +294,28 @@ seq -w 0 11 | xargs -P 12 -I{} \
         -o output/rvlcdip_pseudo --cache .cache --seed {}
 ```
 
-Give every shard a **different `--seed`**: equal seeds make different pages share the
-same generated people, addresses and numbers. Scaling is close to linear (the work is
-CPU-bound in numpy/scipy), so 12 cores brings the run above to roughly 1.5 h and 32 to
-about 35 min. A shared `--cache` directory is safe to read from concurrently; pre-fetch
-it first as above rather than having 12 workers download the same corpus.
+Each shard needs a different `--seed`, because shards with the same seed generate the
+same people, addresses and numbers for different pages. The running time decreases
+almost linearly with the number of cores (the work is CPU-bound in numpy and scipy),
+so the run above takes roughly 1.5 h on 12 cores and about 35 min on 32. Several
+processes can read a shared `--cache` directory at the same time. The directory should
+be filled in advance as shown above, so that the 12 workers do not each download the
+same corpus.
 
-Failures are logged per page and skipped, and each process exits non-zero if any of its
-pages failed, so check the exit codes rather than assuming a silent run was complete.
+A page that fails is logged and skipped, and a process exits with a nonzero status if
+any of its pages failed. The exit codes therefore show whether a run was complete, and
+a run without error messages may still be incomplete.
 
 ### Output files
 
-One file per page, written flat into `--out` (created if missing), named after the
-source: RVL-CDIP and Tobacco pages keep their `.jpg` name, FUNSD its `.png`. A grayscale
-scan is saved grayscale, even though pages are edited in RGB.
+The command writes one file per page directly into `--out`, which is created if it
+does not exist. Each file is named after its source: RVL-CDIP and Tobacco pages keep
+their `.jpg` names, and FUNSD pages their `.png` names. Grayscale scans are saved in
+grayscale, although pages are edited in RGB.
 
-JPEG sources are re-encoded, which touches the whole page and not only the replaced
-regions. Measured on RVL-CDIP scans, against the original pixels outside every
-annotation:
+JPEG sources are re-encoded, which changes pixels across the whole page and not only
+in the replaced regions. The following table shows the effect on RVL-CDIP scans,
+measured against the original pixels outside the annotated boxes:
 
 | output | size/page | drift outside the replaced regions |
 |---|---|---|
@@ -167,27 +323,31 @@ annotation:
 | `--format png` | ~190 KB | 0.003 (lossless) |
 | `--format same --jpeg-quality 60` | ~86 KB | 1.7 gray levels |
 
-If the redacted pages will be compared against unmodified originals, or used to train or
-evaluate a model, prefer `--format png`: re-encoding artifacts spread across the page
-are a difference between the two sets that has nothing to do with redaction.
+`--format png` is preferable when the redacted pages will be compared with the
+unmodified originals or used to train or evaluate a model, because re-encoding
+artifacts across the page are a difference between the two sets that is unrelated to
+redaction.
 
-`--format both` writes each page twice from the same render — a lossless PNG under
-`png/` and a JPEG under `jpg/`, same pixels, same file name. The page is fetched,
-matched and drawn once, so the second copy costs only its encode (a few percent of the
-run) and the two are guaranteed to hold the same replacements. Useful when you want an
-archival copy and a compact one for distribution, without redacting twice and getting two
-different sets of fake people.
+`--format both` writes each page twice from the same render, as a lossless PNG under
+`png/` and as a JPEG under `jpg/`, with the same pixels and the same file name. The
+page is fetched, matched and drawn once, so the second copy adds only its encoding
+time (a few percent of the run), and the two copies contain the same replacements.
+The option produces an archival copy and a smaller copy for distribution without a
+second redaction, which would generate a different set of fake people.
 
-Options for `redact`:
+The `redact` command has the following options:
 
 | Option | Meaning |
 |---|---|
-| `--dataset` | `funsd`, `tobacco3482`, `tobacco800`, `rvlcdip`; sets URL rules and default font |
+| `--dataset` | `generic` (default), `funsd`, `tobacco3482`, `tobacco800`, `rvlcdip`; where each page's image and OCR are found, and the fallback font |
+| `--images DIR` | read page images from this folder, by the file name in each `url` |
+| `--ocr DIR` | read Textract JSON from this folder, by the file name in each `url` |
+| `--no-ocr` | redact without OCR: boxes are erased and refilled in the fallback font, with no matching |
 | `--mode` | `pseudo` (default) or `white` |
 | `--[no-]match-font` | pick, per box, the bundled typeface that best matches the scanned words (default on) |
 | `--system-fonts` | also consider installed fonts (Times New Roman, Courier New, Georgia, ...); results then depend on the machine |
 | `--font` | use this one font everywhere (path, bundled file name, or system font name); turns off `--match-font` |
-| `--font-size N` | fixed size (turns off auto sizing); also the fallback when auto sizing has no words to measure |
+| `--font-size N` | fixed size (turns off auto sizing); also the fallback when auto sizing does not find words to measure |
 | `--[no-]auto-font-size` | size text so the OCR words under the box, re-rendered in `--font`, span their original width (default on) |
 | `--[no-]fit-width` | pick the candidate closest to the original text width, and shrink if it would overflow the box (default on) |
 | `--[no-]match-weight` | thicken strokes to match the scanned text under the box (default on) |
@@ -195,123 +355,114 @@ Options for `redact`:
 | `--[no-]match-skew` | rotate the replacement to the scanned line's baseline slope, falling back to the page skew (default on) |
 | `--[no-]match-color` | draw in the original ink's color, sampled from the strokes; gray ink stays black (default on) |
 | `--degrade` | `auto` (default), `always` or `never`: add scanner wear to replacements only on pages whose own text is worn |
-| `--[no-]paper-fill` | fill erased boxes with paper sampled from around them (color, noise, specks) instead of white (default on) |
+| `--[no-]paper-fill` | fill erased boxes with paper sampled from around them (color, noise, specks); `--no-paper-fill` fills them with white (default on) |
 | `--[no-]keep-lines` | detect horizontal rules crossing a box and redraw them synthetically after erasing (default on) |
 | `--[no-]handwriting` | replace handwritten text with handwriting, one face per document (default on) |
 | `--format` | `same` (default, keeps each source's extension), `png`, `jpeg`, or `both` (one render written to `png/` and `jpg/`) |
 | `--jpeg-quality N` | quality for JPEG output (default 95) |
 | `--only ID` | process only these documents (repeatable) |
 | `--text CATEGORY=TEXT` | fixed replacement text for a category |
-| `--seed N` | reproducible fake data. The generated values are determined by the seed; the paper texture and scanner wear are not, so two runs at the same seed give the same text on visibly different pixels |
-| `--cache DIR` | keep downloaded images/OCR on disk |
-| `--keep-unannotated` | also save pages that have no annotations |
+| `--seed N` | reproducible fake data. The seed determines the generated values but not the paper texture and scanner wear, so two runs with the same seed produce the same text on visibly different pixels |
+| `--cache DIR` | keep downloaded images/OCR on disk (local files are read in place, never cached) |
+| `--keep-unannotated` | also save pages without annotations |
 
-Failed pages are logged and skipped; the command exits non-zero if any failed.
+Failed pages are logged and skipped, and the command exits with a nonzero status if
+any page failed.
 
-## Dataset defaults
+## Categories
 
-| Dataset | Image URL | OCR URL | Fallback font |
-|---|---|---|---|
-| `funsd` | `url` with `.png` | `FUNSD_ocr/<id>.json` | Inconsolata 14 |
-| `tobacco3482` | `url` | `url` with `.json` | Liberation Serif 34 |
-| `tobacco800` | `url` | `url` with `.json` | Courier Prime 21 |
-| `rvlcdip` | `url` | `rvlcdip_ocr/<id>.json` | Inconsolata 13 |
-
-The fallback font and size are used only when a box has no measurable OCR words nearby.
-
-## Annotation format
-
-```json
-[{"url": "https://.../50650671-0672.jpg",
-  "annotations": [{"category": "birth_date",
-                   "bbox": {"left": 1273, "top": 327, "width": 121, "height": 31}}]}]
-```
-
-Categories that get replacement text (aliases after the slash): `age`,
+The following categories receive replacement text (aliases after the slash): `age`,
 `birth_date`/`date_of_birth`, `birth_place`/`place_of_birth`,
 `citizenship_nationality`/`citizenship`, `city`, `home_address`/`address`,
 `home_phone`/`phone`, `marital_status`, `name`, `other_id`,
 `religion`/`religious_affiliation`, `ssn`/`ssn_like`, `state`, `street`, `zip`. Together
 they cover 96% of the annotated RVL-CDIP boxes.
 
-Any other category (`sex_gender`, `signature`, `health_status`, `other`) is
-erased and logged — the region is filled with generated paper and any rule redrawn, but
-nothing is written back.
+Boxes of any other category (`sex_gender`, `signature`, `health_status`, `other`) are
+erased and logged: the region is filled with generated paper and any rule is redrawn,
+but text is not written into it.
 
-## How replacement text is placed
+## Text placement
 
-For each box, the OCR words at least 70% inside it are grouped into lines. That text drives:
+The tool groups the OCR words that lie at least 70% inside each box into lines, and
+uses this text to determine the following properties:
 
 - **Typeface** (`--match-font`): up to three words in the box (or, if none are usable, the nearest words on
   its line) are rendered in every candidate font at the scanned width. Scan and renderings are cleaned of
   specks, reduced to 1-px skeletons and compared by chamfer distance; words vote by rank.
 
-- **Font size**: estimated from word widths (Textract pads boxes vertically, so heights overestimate).
-  Falls back to words in the same row, then the dataset default.
+- **Font size**: estimated from word widths (Textract pads boxes vertically, so heights overestimate the
+  size). Without usable words in the box, the size is estimated from words in the same row, and after
+  that taken from the dataset default.
 - **Weight**: stroke thickness is measured on the scanned words (ink area / half the boundary length) and on the
   same words re-rendered in `--font`; text is drawn at 4x with the outline that best matches, then downsampled,
   so weight changes in 0.5 px steps. Fonts heavier than the scan are not thinned.
-- **Ink color** (`--match-color`): sampled from the darkest half of the pixels that are ink at all, so a
-  stroke's antialiased edges and the paper don't wash the reading out. Blue ballpoint is replaced in blue,
-  and a colored rule is redrawn in its own color. Near-gray ink reads as black, so a grayscale scan comes
-  out byte for byte as it did before this existed. Detection (typeface, weight, baselines, rules) stays on
-  luminance — hue should not decide which face matched.
-- **Scanner wear** (`--degrade auto`): replacements get low-ink dropouts only when the page's own text
-  has them. A page is judged by the midtones around its strokes, counted per unit of stroke perimeter so
-  the measure does not drift with font size: a born-digital glyph has a one-pixel antialiased rim, a
-  scanned one a smeared edge. Over 40 RVL-CDIP scans and 15 clean renders the two never overlapped
-  (scans 0.19-0.45, renders 0.07-0.15), so the threshold sits in the gap at 0.17. On a born-digital PDF
-  the replacement would otherwise be the only worn text on the page.
+- **Ink color** (`--match-color`): sampled from the darker half of the ink pixels, so that the antialiased
+  edges of a stroke and the paper do not lighten the measurement. Blue ballpoint is replaced in blue, and
+  a colored rule is redrawn in its own color. Near-gray ink is treated as black, so the output for a
+  grayscale scan is identical, byte for byte, to the output before color matching was added. Detection
+  (typeface, weight, baselines, rules) uses luminance only, so that hue does not affect the choice of
+  typeface.
+- **Scanner wear** (`--degrade auto`): replacements receive low-ink dropouts only when the text of the
+  page has them. The tool measures the midtones around the strokes of a page, per unit of stroke
+  perimeter so that the measure does not change with font size: a born-digital glyph has an antialiased
+  edge one pixel wide, and a scanned glyph has a blurred edge. On 40 RVL-CDIP scans and 15 clean
+  renderings the two ranges did not overlap (scans 0.19-0.45, renderings 0.07-0.15), and the threshold is
+  set between them at 0.17. Without this test, the replacement on a born-digital PDF would be the only
+  worn text on the page.
 - **Position**: glyph tops align with the original words' left/top; empty boxes are centered vertically.
 - **Line count**: addresses stay two lines only if the original spans two lines.
 - **Style** (`--match-style`): e.g. `4/12/50` → `9/3/61`, `Marfa, Tex.` → `Olney, Ark.`,
   `(555) 014-2233` → `(804) 311-9072`, `Springfield, PA 19064` → city line only, `MARRIED` → upper case.
-  Only the format is copied, never the value. It does reveal the original's format and approximate
-  width, which matters if that is sensitive for your use.
+  Only the format of the original is copied, and its value is not. The replacement does reveal the
+  format and approximate width of the original, which matters if these are sensitive in your
+  application.
 
-`check` flags: `no_ocr_words`, `looks_like_date`, `looks_like_ssn`, `no_digits`, `only_digits`
-(likely label problems) and `style_not_detected` (informational; a random format will be used).
+The `check` command reports the flags `no_ocr_words`, `looks_like_date`, `looks_like_ssn`, `no_digits`
+and `only_digits` (likely label problems) and `style_not_detected` (informational; a random format is
+then used).
 
 ## Known limitations
 
-**Light text on a dark background is not handled.** Everything here assumes ink is darker than paper:
-`sample_ink` looks for pixels darker than the page, `layout.draw_text` composites with
-`ImageChops.darker`, `augment.overlay` copies every non-white pixel, and the measurements
-(`detect_rules`, `weight`, `baseline`, the typeface masks) all threshold for dark ink. Paper sampling
-is the exception and already copes, reading `(20, 20, 20)` off a black page.
+The tool does not handle light text on a dark background, because the code assumes that ink is
+darker than paper: `sample_ink` looks for pixels darker than the page, `layout.draw_text` composites
+with `ImageChops.darker`, `augment.overlay` copies every non-white pixel, and the measurements
+(`detect_rules`, `weight`, `baseline`, the typeface masks) all use thresholds for dark ink. Paper
+sampling is the exception, and it reads `(20, 20, 20)` correctly from a black page.
 
-Given a white-on-black or cream-on-navy box the erase is correct -- the box is refilled in the right
-dark tone -- but the replacement is drawn in the wrong polarity and comes out as dark glyphs ringed
-with bright halos. `sample_ink` also mistakes the dark background for the ink and returns it.
+For a white-on-black or cream-on-navy box, the erase is correct and the box is refilled in the right
+dark tone, but the replacement is drawn in the wrong polarity, as dark glyphs surrounded by bright
+halos. `sample_ink` also returns the dark background as the ink color.
 
-The cheap fix, when it is wanted: detect polarity per box by comparing the sampled ink's luminance
-with the paper's, and for a light-on-dark box invert the crop, run the existing pipeline unchanged,
-and invert the result back. That reuses typeface matching, weight, baselines and rule detection as
-they are rather than teaching six modules about polarity. The genuinely new parts are a
-polarity-aware `sample_ink` (the pixels furthest from paper, in either direction) and compositing by
-coverage instead of `darker`.
+A simple fix would detect the polarity of each box by comparing the luminance of the sampled ink with
+that of the paper, and for a light-on-dark box invert the crop, run the existing pipeline unchanged
+and invert the result. This would reuse typeface matching, weight, baselines and rule detection
+without changes to the six modules that assume dark ink. The new parts would be a version of
+`sample_ink` that handles both polarities (the pixels furthest from the paper color, in either
+direction) and compositing by coverage in place of `darker`.
 
-This has not mattered so far: RVL-CDIP is grayscale and black-on-white throughout. It would matter
-for slides, advertisements and forms with inverted panels.
+The limitation does not affect RVL-CDIP, whose pages are grayscale and black on white, but it would
+affect slides, advertisements and forms with inverted panels.
 
-Also still open: `sex_gender`, `signature`, `health_status` and `other` boxes are erased but not
-replaced (3.8% of annotated boxes; see the category list above), and on a preprinted form whose date
-field reads `April 10 ___ 19 87`, a box drawn around the whole field spans the printed `19`, so the
-replacement can come out as something no date would be written as.
+Boxes of the categories `sex_gender`, `signature`, `health_status` and `other` are erased
+but not replaced (3.8% of annotated boxes; see **Categories**). On a
+preprinted form whose date field reads `April 10 ___ 19 87`, a box drawn around the whole field
+includes the printed `19`, so the replacement can be a string that is not a valid date.
 
 ## Fonts
 
-19 open-license fonts are bundled (5.2 MB) so matching works the same on every machine:
+The package includes 19 open-license fonts (5.2 MB), so that typeface matching gives the same result
+on every machine:
 
-| Kind | Bundled | Stands in for |
+| Kind | Bundled | Substitute for |
 |---|---|---|
 | Serif | Liberation Serif (+ Bold), Gelasio, TeX Gyre Pagella / Schola / Bonum | Times, Georgia, Palatino, Century, Bookman |
 | Sans | Liberation Sans (+ Bold), Carlito, DejaVu Sans | Arial, Calibri, Verdana |
 | Typewriter, serifed | Courier Prime (+ Bold), Courier 10 Pitch (+ Bold), Cutive Mono, Special Elite | Courier and worn typewriter faces |
 | Typewriter, sans | Liberation Mono, Inconsolata, DejaVu Sans Mono | Consolas, Lucida Console |
 
-Licenses (SIL OFL, Apache 2.0, GUST, Bitstream, DejaVu) are listed in `src/doc_redact/fonts/FONTS.txt`
-and ship next to the fonts.
+The licenses (SIL OFL, Apache 2.0, GUST, Bitstream, DejaVu) are listed in
+`src/doc_redact/fonts/FONTS.txt` and included next to the fonts.
 
 ## Layout
 
@@ -320,7 +471,7 @@ src/doc_redact/
   cli.py          argument parsing, subcommands
   pipeline.py     per-document and batch redaction
   datasets.py     URL/output/font conventions per dataset
-  remote.py       downloads with optional disk cache
+  remote.py       local files read in place; downloads with optional disk cache
   annotations.py  BBox/Document types, JSON I/O, Label Studio parser
   categories.py   annotation category names and their aliases
   ocr.py          Textract WORD blocks -> pixel boxes
