@@ -10,7 +10,7 @@ from pathlib import Path
 
 from doc_redact import checks, fakedata, pipeline, render
 from doc_redact.annotations import Document, load_documents, parse_labelstudio, save_documents
-from doc_redact.datasets import DATASETS
+from doc_redact.datasets import DATASETS, Dataset, in_folders
 from doc_redact.remote import Fetcher
 
 
@@ -27,8 +27,19 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     documents = argparse.ArgumentParser(add_help=False)
-    documents.add_argument("annotations", type=Path, help="parsed annotations JSON")
-    documents.add_argument("--dataset", required=True, choices=sorted(DATASETS))
+    documents.add_argument(
+        "annotations", type=Path,
+        help="parsed annotations JSON; each url is a URL or a local path (relative to this file's folder)",
+    )
+    documents.add_argument(
+        "--dataset", default="generic", choices=sorted(DATASETS),
+        help="where each page's image and OCR are found, given its url (default: generic, the image at url "
+             "and its OCR beside it with .json)",
+    )
+    documents.add_argument("--images", type=Path, metavar="DIR",
+                           help="read page images from this local folder instead of where the urls point")
+    documents.add_argument("--ocr", type=Path, metavar="DIR",
+                           help="read Textract JSON from this local folder instead of where the urls point")
     documents.add_argument("--only", action="append", metavar="ID", help="process only this document id (repeatable)")
     documents.add_argument("--cache", type=Path, help="cache downloaded images/OCR in this directory")
 
@@ -106,6 +117,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     r.add_argument("--seed", type=int, help="seed fake data and augmentation for reproducible output")
     r.add_argument("--keep-unannotated", action="store_true", help="also save pages with no PII annotations")
+    r.add_argument(
+        "--no-ocr", dest="use_ocr", action="store_false",
+        help="redact without OCR: boxes are still erased and refilled, but in the fallback font, with no "
+             "style, typeface, skew or handwriting matching",
+    )
 
     c = sub.add_parser("check", parents=[documents], help="show the OCR text under each box and flag likely label errors")
     c.add_argument("--problems-only", action="store_true", help="only list boxes with problem flags")
@@ -134,8 +150,19 @@ def _select_documents(args: argparse.Namespace) -> list[Document] | None:
     return docs
 
 
+def _dataset(args: argparse.Namespace) -> Dataset:
+    # Absolute, so folders given on the command line stay relative to where it was typed, not to the
+    # annotation file's folder as a relative url is.
+    images, ocr = (p.resolve() if p else None for p in (args.images, args.ocr))
+    return in_folders(DATASETS[args.dataset], images, ocr)
+
+
+def _fetcher(args: argparse.Namespace) -> Fetcher:
+    return Fetcher(args.cache, base_dir=args.annotations.parent)
+
+
 def cmd_redact(args: argparse.Namespace) -> int:
-    dataset = DATASETS[args.dataset]
+    dataset = _dataset(args)
     docs = _select_documents(args)
     if docs is None:
         return 2
@@ -166,9 +193,11 @@ def cmd_redact(args: argparse.Namespace) -> int:
             overrides=dict(args.text),
         ),
     )
+    if not args.use_ocr and args.mode == pipeline.Mode.PSEUDO.value:
+        logging.warning("--no-ocr: replacements use the fallback font and size, with no style matching")
     failures = pipeline.run(
-        docs, dataset, Fetcher(args.cache), args.out, options, keep_unannotated=args.keep_unannotated,
-        image_format=args.image_format, jpeg_quality=args.jpeg_quality,
+        docs, dataset, _fetcher(args), args.out, options, keep_unannotated=args.keep_unannotated,
+        image_format=args.image_format, jpeg_quality=args.jpeg_quality, use_ocr=args.use_ocr,
     )
     if failures:
         logging.error("%d document(s) failed: %s", len(failures), ", ".join(d.stem for d, _ in failures))
@@ -177,13 +206,13 @@ def cmd_redact(args: argparse.Namespace) -> int:
 
 
 def cmd_check(args: argparse.Namespace) -> int:
-    dataset = DATASETS[args.dataset]
+    dataset = _dataset(args)
     docs = _select_documents(args)
     if docs is None:
         return 2
 
     report, failed, problem_boxes, total_boxes = [], 0, 0, 0
-    for doc, result in pipeline.check(docs, dataset, Fetcher(args.cache)):
+    for doc, result in pipeline.check(docs, dataset, _fetcher(args)):
         if isinstance(result, Exception):
             failed += 1
             logging.error("failed on %s: %r", doc.stem, result)

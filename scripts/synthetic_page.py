@@ -168,6 +168,34 @@ def ocr_json(fields: list[Field]) -> dict:
     return {"Blocks": blocks}
 
 
+def annotation_record(url: str, fields: list[Field], rounded: bool = False) -> dict:
+    """One page's entry in the annotations format that ``doc-redact`` reads."""
+    def edge(v: float) -> float:
+        return round(v) if rounded else v
+    return {"url": url, "annotations": [
+        {"category": f.category, "bbox": {"left": edge(f.box.left), "top": edge(f.box.top),
+                                          "width": edge(f.box.width), "height": edge(f.box.height)}}
+        for f in fields]}
+
+
+def write_example(out: Path, variant: dict, seed: int) -> None:
+    """A ready-to-run input for ``doc-redact redact``: a page, its Textract JSON and its annotations.
+
+    ``annotations.json`` names the page by a path relative to itself, so it runs from disk as it is;
+    ``annotations_hosted.json`` names the same page by URL, for trying the download path against a
+    local web server.
+    """
+    fields, _ = compose(seed)
+    page = draw_page(fields, seed, variant)
+    out.mkdir(parents=True, exist_ok=True)
+    page.save(out / "page.png")
+    (out / "page.json").write_text(json.dumps(ocr_json(fields), indent=1), encoding="utf-8")
+    for name, url in (("annotations.json", "page.png"), ("annotations_hosted.json", "http://localhost:8000/page.png")):
+        (out / name).write_text(json.dumps([annotation_record(url, fields, rounded=True)], indent=2),
+                                encoding="utf-8")
+    log.info("wrote %s: page.png, page.json (OCR), annotations.json, annotations_hosted.json", out)
+
+
 def build(out: Path, name: str, variant: dict, seed: int, crop_scale: int) -> None:
     """One synthetic page and its redaction, written as <name>_before.png / _after.png."""
     fields, _ = compose(seed)
@@ -183,10 +211,7 @@ def build(out: Path, name: str, variant: dict, seed: int, crop_scale: int) -> No
     page.save(out / f"{name}_before.png")
     redacted.save(out / f"{name}_after.png")
     (out / f"{name}_annotations.json").write_text(
-        json.dumps([{"url": doc.url, "annotations": [
-            {"category": a.category, "bbox": {"left": a.bbox.left, "top": a.bbox.top,
-                                              "width": a.bbox.width, "height": a.bbox.height}}
-            for a in doc.annotations]}], indent=2), encoding="utf-8")
+        json.dumps([annotation_record(doc.url, fields)], indent=2), encoding="utf-8")
 
     # A crop around the handwritten block, which the stand-in figures cannot show at all.
     hand = [f.box for f in fields if f.handwritten]
@@ -207,9 +232,15 @@ def main() -> int:
     parser.add_argument("--crop-scale", type=int, default=2)
     parser.add_argument("--variants", nargs="*", choices=sorted(VARIANTS), default=sorted(VARIANTS),
                         help="which office to imitate (default: all of them)")
+    parser.add_argument("--example", action="store_true",
+                        help="write unredacted input for doc-redact (page, OCR, annotations) instead of figures; "
+                             "uses the first of --variants")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
+    if args.example:
+        write_example(args.out, VARIANTS[args.variants[0]], args.seed)
+        return 0
     for i, name in enumerate(args.variants):
         build(args.out, f"synthetic_{name}", VARIANTS[name], args.seed + 10 * i, args.crop_scale)
     log.info("every value on these pages is generated; nothing on them belongs to a person")

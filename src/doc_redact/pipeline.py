@@ -154,8 +154,14 @@ def run(
     keep_unannotated: bool = False,
     image_format: str = "same",
     jpeg_quality: int = 95,
+    use_ocr: bool = True,
 ) -> list[tuple[Document, Exception]]:
-    """Redact each document into ``out_dir``. Returns the documents that failed."""
+    """Redact each document into ``out_dir``. Returns the documents that failed.
+
+    Without OCR (``use_ocr=False``) every box is still erased and refilled, but nothing on the page
+    can be measured: the replacement is drawn in the fallback font and size, with no style,
+    typeface, weight, skew or handwriting matching and no linking of repeated values.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     failures = []
     for i, doc in enumerate(docs, 1):
@@ -167,7 +173,9 @@ def run(
         try:
             source_mode, source_format = fetcher.image_kind(image_url)
             image = fetcher.image(image_url)
-            page_ocr = fetcher.json(dataset.ocr_url(doc)) if options.mode is Mode.PSEUDO else None
+            page_ocr = None
+            if options.mode is Mode.PSEUDO:
+                page_ocr = fetcher.json(dataset.ocr_url(doc)) if use_ocr else {"Blocks": []}
             redacted = redact_document(image, doc, page_ocr, options)
             for path in output_paths(out_dir, dataset, doc, image_format, source_format):
                 save_page(redacted, path, source_mode, jpeg_quality)

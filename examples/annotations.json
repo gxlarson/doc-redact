@@ -1,0 +1,106 @@
+[
+  {
+    "url": "page.png",
+    "annotations": [
+      {
+        "category": "name",
+        "bbox": {
+          "left": 330,
+          "top": 138,
+          "width": 121,
+          "height": 26
+        }
+      },
+      {
+        "category": "ssn",
+        "bbox": {
+          "left": 330,
+          "top": 190,
+          "width": 121,
+          "height": 26
+        }
+      },
+      {
+        "category": "birth_date",
+        "bbox": {
+          "left": 330,
+          "top": 242,
+          "width": 154,
+          "height": 26
+        }
+      },
+      {
+        "category": "birth_place",
+        "bbox": {
+          "left": 330,
+          "top": 294,
+          "width": 143,
+          "height": 26
+        }
+      },
+      {
+        "category": "street",
+        "bbox": {
+          "left": 330,
+          "top": 346,
+          "width": 176,
+          "height": 26
+        }
+      },
+      {
+        "category": "home_address",
+        "bbox": {
+          "left": 330,
+          "top": 398,
+          "width": 209,
+          "height": 26
+        }
+      },
+      {
+        "category": "home_phone",
+        "bbox": {
+          "left": 330,
+          "top": 450,
+          "width": 154,
+          "height": 26
+        }
+      },
+      {
+        "category": "marital_status",
+        "bbox": {
+          "left": 330,
+          "top": 502,
+          "width": 209,
+          "height": 26
+        }
+      },
+      {
+        "category": "name",
+        "bbox": {
+          "left": 333,
+          "top": 558,
+          "width": 143,
+          "height": 31
+        }
+      },
+      {
+        "category": "name",
+        "bbox": {
+          "left": 328,
+          "top": 618,
+          "width": 167,
+          "height": 28
+        }
+      },
+      {
+        "category": "birth_date",
+        "bbox": {
+          "left": 334,
+          "top": 677,
+          "width": 126,
+          "height": 21
+        }
+      }
+    ]
+  }
+]

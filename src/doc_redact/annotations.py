@@ -98,7 +98,7 @@ class Document:
 
     @property
     def filename(self) -> str:
-        return posixpath.basename(self.url)
+        return posixpath.basename(self.url.replace("\\", "/"))  # a Windows path is a url here too
 
     @property
     def stem(self) -> str:
