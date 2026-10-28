@@ -537,3 +537,17 @@ src/doc_redact/
 ```sh
 pytest
 ```
+
+## Citation
+
+If you use this tool or its data, please cite:
+
+```bibtex
+@article{larson2026data,
+  title   = {Data Quality in {RVL-CDIP}: A Systematic Audit},
+  author  = {Larson, Stefan and Leach, Kevin},
+  journal = {arXiv preprint arXiv:2610.32126},
+  year    = {2026},
+  url     = {https://arxiv.org/abs/2610.32126}
+}
+```
